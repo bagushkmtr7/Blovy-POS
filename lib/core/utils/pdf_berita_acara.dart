@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'pdf_downloader_stub.dart' if (dart.library.html) 'pdf_downloader_web.dart' if (dart.library.io) 'pdf_downloader_io.dart';
@@ -16,8 +17,10 @@ Future<Uint8List> generatePdfBeritaAcara({
     author: sesi.operatorNama,
   );
 
-  final fontRegular = pw.Font.helvetica();
-  final fontBold = pw.Font.helveticaBold();
+  final regularData = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
+  final boldData = await rootBundle.load('assets/fonts/Roboto-Bold.ttf');
+  final fontRegular = pw.Font.ttf(regularData);
+  final fontBold = pw.Font.ttf(boldData);
 
   final mapToko = toko?.toMap() ?? const <String, dynamic>{};
   final namaToko = (toko?.namaToko.isNotEmpty ?? false)
