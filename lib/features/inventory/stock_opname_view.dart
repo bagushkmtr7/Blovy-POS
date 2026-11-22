@@ -937,60 +937,66 @@ class _StockOpnameViewState extends State<StockOpnameView> {
     }
 
     setState(() => _sedangMembuatPdf = true);
-
-    final sesiSelesai = sesiSiapSah.copyWith(
-      approverNama: approver,
-      waktuSelesai: DateTime.now(),
-      selesai: true,
-    );
-
-    for (final item in sesiSelesai.items) {
-      if (item.adaSelisih) {
-        final pIdx =
-            widget.daftarProduk.indexWhere((p) => p.id == item.produkId);
-        if (pIdx != -1) {
-          widget.onMutasiStok(
-            produk: widget.daftarProduk[pIdx],
-            tipe: 'Opname',
-            perubahan: item.selisihQty,
-            keterangan:
-                '${sesiSelesai.nomorDokumen} • ${item.alasanSelisih}${item.sudahRecount ? ' (Recount)' : ''}',
-          );
-        }
-      }
-    }
-
-    final riwayatBaru = [sesiSelesai, ..._riwayatSO];
-    setState(() {
-      _sesiAktif = null;
-      _riwayatSO = riwayatBaru;
-    });
-    await _simpanDraftSO(null);
-    await _simpanRiwayatSO(riwayatBaru);
-
-    // Otomatis generate & unduh/bagikan PDF Berita Acara
     try {
-      await unduhAtauBagikanPdfBA(
-        sesi: sesiSelesai,
-        tampilkanHpp: widget.currentStaff.isStoreSystem,
-        toko: widget.toko,
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'PDF Berita Acara BA_${sesiSelesai.nomorDokumen}.pdf otomatis dibuat.',
-            ),
-            behavior: SnackBarBehavior.floating,
-          ),
+        final sesiSelesai = sesiSiapSah.copyWith(
+          approverNama: approver,
+          waktuSelesai: DateTime.now(),
+          selesai: true,
         );
-      }
-    } catch (_) {
-      // Tetap lanjut buka preview detail Berita Acara jika share sheet ditutup
+
+        for (final item in sesiSelesai.items) {
+          if (item.adaSelisih) {
+            final pIdx =
+                widget.daftarProduk.indexWhere((p) => p.id == item.produkId);
+            if (pIdx != -1) {
+              widget.onMutasiStok(
+                produk: widget.daftarProduk[pIdx],
+                tipe: 'Opname',
+                perubahan: item.selisihQty,
+                keterangan:
+                    '${sesiSelesai.nomorDokumen} • ${item.alasanSelisih}${item.sudahRecount ? ' (Recount)' : ''}',
+              );
+            }
+          }
+        }
+
+        final riwayatBaru = [sesiSelesai, ..._riwayatSO];
+        setState(() {
+          _sesiAktif = null;
+          _riwayatSO = riwayatBaru;
+        });
+        await _simpanDraftSO(null);
+        await _simpanRiwayatSO(riwayatBaru);
+
+        // Otomatis generate & unduh/bagikan PDF Berita Acara
+        try {
+          await unduhAtauBagikanPdfBA(
+            sesi: sesiSelesai,
+            tampilkanHpp: widget.currentStaff.isStoreSystem,
+            toko: widget.toko,
+          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'PDF Berita Acara BA_${sesiSelesai.nomorDokumen}.pdf otomatis dibuat.',
+                ),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        } catch (_) {
+          // Tetap lanjut buka preview detail Berita Acara jika share sheet ditutup
+        } finally {
+          if (mounted) {
+            setState(() => _sedangMembuatPdf = false);
+            _tampilkanDetailBeritaAcara(sesiSelesai);
+          }
+        }
+
     } finally {
       if (mounted) {
         setState(() => _sedangMembuatPdf = false);
-        _tampilkanDetailBeritaAcara(sesiSelesai);
       }
     }
   }

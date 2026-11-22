@@ -1679,19 +1679,19 @@ class _InventoryTabState extends State<InventoryTab> {
             segments: const [
               ButtonSegment(
                 value: 0,
-                label: Text('Katalog', style: TextStyle(fontSize: 11)),
+                label: Text('Katalog', maxLines: 1, softWrap: false, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700)),
               ),
               ButtonSegment(
                 value: 1,
-                label: Text('Stock Opname', style: TextStyle(fontSize: 11)),
+                label: Text('SO Fisik', maxLines: 1, softWrap: false, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700)),
               ),
               ButtonSegment(
                 value: 2,
-                label: Text('Kartu Stok', style: TextStyle(fontSize: 11)),
+                label: Text('Kartu Stok', maxLines: 1, softWrap: false, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700)),
               ),
               ButtonSegment(
                 value: 3,
-                label: Text('Label Harga', style: TextStyle(fontSize: 11)),
+                label: Text('Label Harga', maxLines: 1, softWrap: false, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700)),
               ),
             ],
             selected: {_subTab},

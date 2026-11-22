@@ -342,15 +342,20 @@ class _PosMainShellState extends State<PosMainShell> {
     _storage.simpanMember(_daftarMember);
     _storage.simpanShift(_daftarShift);
 
-    tampilkanStrukDigital(
-      context: context,
-      tema: widget.tema,
-      transaksi: trxBaru,
-      toko: _toko,
-      currentStaff: _currentStaff!,
-      daftarStaff: _daftarStaff,
-      onVoidTransaksi: () => _voidTransaksi(trxBaru),
-    );
+    try {
+      if (!mounted) return;
+      tampilkanStrukDigital(
+        context: context,
+        tema: widget.tema,
+        transaksi: trxBaru,
+        toko: _toko,
+        currentStaff: _currentStaff!,
+        daftarStaff: _daftarStaff,
+        onVoidTransaksi: () => _voidTransaksi(trxBaru),
+      );
+    } catch (e) {
+      _info('Transaksi ${trxBaru.nomorStruk} tersimpan, namun struk gagal dibuka: $e');
+    }
   }
 
   void _voidTransaksi(TransaksiPos trx) {

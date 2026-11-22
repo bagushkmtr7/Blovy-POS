@@ -33,6 +33,7 @@ void tampilkanModalCheckout({
   final bayarCtrl = TextEditingController();
   final diskonManualCtrl = TextEditingController(text: '0');
   final pelangganCtrl = TextEditingController(text: 'Pelanggan Umum');
+  final hpMemberCtrl = TextEditingController();
   final catatanCtrl = TextEditingController();
 
   String metode = 'Tunai';
