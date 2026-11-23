@@ -1260,7 +1260,9 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
   ];
   final TextEditingController _catatanReviewKksoCtrl = TextEditingController();
   final TextEditingController _petugasDoubleCountCtrl = TextEditingController();
+  // ignore: unused_element
   Widget _buildKksoPilihanAwal(AppThemeConfig t) => _buildStep0();
+  // ignore: unused_element
   Widget _buildKksoHitungBorongan(AppThemeConfig t, KksoDocument doc) => _buildStep1(doc);
 
   late AnimationController _pulseCtrl;
@@ -1905,6 +1907,7 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
     );
   }
 
+  // ignore: unused_element
   Widget _buildKksoReviewOwner(AppThemeConfig t, KksoDocument doc) {
     if (!_isOwnerOrSis) {
       return Center(
@@ -2406,12 +2409,17 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
   Widget _buildSo(AppThemeConfig t) {
     final doc = _aktifKkso;
     if (doc == null) {
-      return _buildKksoPilihanAwal(t);
+      return _buildStep0();
     }
+    if (_kksoStep == 2) return _buildStep2(doc);
+    if (_kksoStep == 3) return _buildStep3(doc);
+    if (_kksoStep == 4) return _buildStep4(doc);
+    if (_kksoStep == 5) return _buildStep5(doc);
+    if (_kksoStep == 1) return _buildStep1(doc);
     if (doc.status == KksoStatus.hitung) {
-      return _buildKksoHitungBorongan(t, doc);
+      return _buildStep1(doc);
     }
-    return _buildKksoReviewOwner(t, doc);
+    return _buildStep3(doc);
   }
 
   Widget _buildLog(AppThemeConfig t) {
