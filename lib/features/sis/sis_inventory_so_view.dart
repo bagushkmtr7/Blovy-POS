@@ -346,8 +346,9 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
   final TextEditingController _barcodeKksoCtrl = TextEditingController();
   final FocusNode _barcodeKksoFocus = FocusNode();
   final Map<String, int?> _draftFisikKkso = {};
-  final Map<String, TextEditingController> _fastEntryCtrlMap = {};
-  final Map<String, FocusNode> _fastEntryFocusMap = {};
+  String? _selectedProdukIdKkso;
+  String _keypadBufferKkso = '';
+  bool _keypadReplaceNext = true;
 
   final List<String> _daftarAlasanKkso = const [
     'Hilang',
@@ -399,36 +400,19 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
     }).toList();
   }
 
-  void _bersihkanFastEntryControllers() {
-    for (final c in _fastEntryCtrlMap.values) {
-      c.dispose();
+  int? _ambilFisikQty(KksoItem it) {
+    if (_draftFisikKkso.containsKey(it.produkId)) {
+      return _draftFisikKkso[it.produkId];
     }
-    for (final f in _fastEntryFocusMap.values) {
-      f.dispose();
-    }
-    _fastEntryCtrlMap.clear();
-    _fastEntryFocusMap.clear();
+    return it.sudahDihitung ? it.stokFisik : null;
   }
 
-  TextEditingController _ctrlFastEntry(String produkId, int? initialQty) {
-    return _fastEntryCtrlMap.putIfAbsent(
-      produkId,
-      () => TextEditingController(text: initialQty != null ? '$initialQty' : ''),
-    );
-  }
-
-  FocusNode _focusFastEntry(String produkId) {
-    return _fastEntryFocusMap.putIfAbsent(produkId, () {
-      final node = FocusNode();
-      node.addListener(() {
-        if (node.hasFocus) {
-          final c = _fastEntryCtrlMap[produkId];
-          if (c != null && c.text.isNotEmpty) {
-            c.selection = TextSelection(baseOffset: 0, extentOffset: c.text.length);
-          }
-        }
-      });
-      return node;
+  void _pilihProdukFokusKkso(KksoItem it) {
+    final existing = _ambilFisikQty(it);
+    setState(() {
+      _selectedProdukIdKkso = it.produkId;
+      _keypadBufferKkso = existing != null ? '$existing' : '';
+      _keypadReplaceNext = true;
     });
   }
 
@@ -450,16 +434,16 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
       tanggalDibuat: DateTime.now(),
       items: items,
     );
-    _bersihkanFastEntryControllers();
     setState(() {
       _aktifKkso = doc;
       _barcodeKksoCtrl.clear();
       _draftFisikKkso.clear();
       for (final it in items) {
         _draftFisikKkso[it.produkId] = null;
-        _ctrlFastEntry(it.produkId, null);
-        _focusFastEntry(it.produkId);
       }
+      _selectedProdukIdKkso = items.isNotEmpty ? items.first.produkId : null;
+      _keypadBufferKkso = '';
+      _keypadReplaceNext = true;
     });
   }
 
@@ -560,33 +544,82 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
     );
   }
 
-  int? _ambilFisikQty(KksoItem it) {
-    if (_draftFisikKkso.containsKey(it.produkId)) {
-      return _draftFisikKkso[it.produkId];
-    }
-    return it.sudahDihitung ? it.stokFisik : null;
-  }
-
-  void _setQtyManualKkso(String produkId, int? nilai, {bool syncController = true}) {
+  void _onKeypadDigit(String digit) {
+    HapticFeedback.lightImpact();
     setState(() {
-      _draftFisikKkso[produkId] = nilai;
-      if (syncController) {
-        final ctrl = _ctrlFastEntry(produkId, nilai);
-        final teksBaru = nilai != null ? '$nilai' : '';
-        if (ctrl.text != teksBaru) {
-          ctrl.value = TextEditingValue(
-            text: teksBaru,
-            selection: TextSelection.collapsed(offset: teksBaru.length),
-          );
+      if (_keypadReplaceNext) {
+        _keypadBufferKkso = digit;
+        _keypadReplaceNext = false;
+      } else {
+        if (_keypadBufferKkso == '0') {
+          _keypadBufferKkso = digit;
+        } else if (_keypadBufferKkso.length < 6) {
+          _keypadBufferKkso += digit;
         }
       }
     });
   }
 
-  void _ubahQtyStepperKkso(KksoItem it, int delta) {
-    final cur = _ambilFisikQty(it) ?? 0;
-    final next = (cur + delta) < 0 ? 0 : (cur + delta);
-    _setQtyManualKkso(it.produkId, next);
+  void _onKeypadClear() {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _keypadBufferKkso = '';
+      _keypadReplaceNext = false;
+    });
+  }
+
+  void _batalInputFokusKkso(KksoItem fokusItem) {
+    HapticFeedback.selectionClick();
+    final existing = _ambilFisikQty(fokusItem);
+    setState(() {
+      _keypadBufferKkso = existing != null ? '$existing' : '';
+      _keypadReplaceNext = true;
+    });
+  }
+
+  void _simpanItemFokusDanLanjut(KksoDocument doc, KksoItem fokusItem) {
+    HapticFeedback.mediumImpact();
+    final raw = _keypadBufferKkso.trim();
+    // Jika kosong, dianggap 0 hanya jika memang belum pernah diisi & user menekan Enter langsung,
+    // atau gunakan angka yang diketik (termasuk '0').
+    final int nilaiSimpan = raw.isEmpty ? 0 : (int.tryParse(raw) ?? 0);
+
+    setState(() {
+      _draftFisikKkso[fokusItem.produkId] = nilaiSimpan;
+
+      // Cari produk berikutnya yang belum dihitung (fisik_qty == null)
+      final curIdx = doc.items.indexWhere((e) => e.produkId == fokusItem.produkId);
+      KksoItem? nextItem;
+      for (int step = 1; step <= doc.items.length; step++) {
+        final cand = doc.items[(curIdx + step) % doc.items.length];
+        if (cand.produkId != fokusItem.produkId && _ambilFisikQty(cand) == null) {
+          nextItem = cand;
+          break;
+        }
+      }
+      if (nextItem == null && doc.items.length > 1) {
+        nextItem = doc.items[(curIdx + 1) % doc.items.length];
+      }
+
+      if (nextItem != null) {
+        _selectedProdukIdKkso = nextItem.produkId;
+        final nextQty = _ambilFisikQty(nextItem);
+        _keypadBufferKkso = nextQty != null ? '$nextQty' : '';
+        _keypadReplaceNext = true;
+      } else {
+        _keypadBufferKkso = '$nilaiSimpan';
+        _keypadReplaceNext = true;
+      }
+    });
+
+    final terhitungBaru = doc.items.where((e) => _ambilFisikQty(e) != null).length;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('✓ ${fokusItem.namaProduk}: OK $nilaiSimpan ($terhitungBaru dari ${doc.items.length} item)'),
+        duration: const Duration(milliseconds: 900),
+      ),
+    );
   }
 
   void _fokusKeBarcodeKkso(String rawQuery) {
@@ -606,21 +639,9 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
       return;
     }
     final target = doc.items[idx];
-    final node = _focusFastEntry(target.produkId);
-    final ctrl = _ctrlFastEntry(target.produkId, _ambilFisikQty(target));
     _barcodeKksoCtrl.clear();
-    FocusScope.of(context).requestFocus(node);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (ctrl.text.isNotEmpty) {
-        ctrl.selection = TextSelection(baseOffset: 0, extentOffset: ctrl.text.length);
-      }
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Fokus input: ${target.namaProduk} (${target.kodeSku})'),
-        duration: const Duration(milliseconds: 900),
-      ),
-    );
+    FocusScope.of(context).unfocus();
+    _pilihProdukFokusKkso(target);
   }
 
   void _simpanProgresHitungKkso({required bool ajukanReview}) {
@@ -915,427 +936,409 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
     final progres = total == 0 ? 0.0 : (hitungSekarang / total).clamp(0.0, 1.0);
     final semuaSelesai = total > 0 && hitungSekarang >= total;
 
-    // Urutkan otomatis: fisik_qty == null (belum dihitung) di atas, yang sudah diisi (termasuk 0) pindah ke bawah
-    final indexed = doc.items.asMap().entries.toList();
-    indexed.sort((a, b) {
-      final aDone = _ambilFisikQty(a.value) != null;
-      final bDone = _ambilFisikQty(b.value) != null;
-      if (aDone != bDone) return aDone ? 1 : -1;
-      return a.key.compareTo(b.key);
-    });
-    final sortedItems = [for (final e in indexed) e.value];
+    // Tentukan produk yang sedang fokus di card tengah
+    KksoItem? fokusItem;
+    if (doc.items.isNotEmpty) {
+      fokusItem = doc.items.firstWhere(
+        (e) => e.produkId == _selectedProdukIdKkso,
+        orElse: () => doc.items.firstWhere(
+          (e) => _ambilFisikQty(e) == null,
+          orElse: () => doc.items.first,
+        ),
+      );
+    }
 
-    return Column(
+    // Urutkan list mini: yang sudah diisi di atas agar ringkas terlihat ("Air Mineral 600ml - OK 24"), atau tampilkan semua dalam 1 list unified
+    final sortedMini = [...doc.items]..sort((a, b) {
+        final aDone = _ambilFisikQty(a) != null;
+        final bDone = _ambilFisikQty(b) != null;
+        if (aDone != bDone) return aDone ? -1 : 1;
+        return 0;
+      });
+
+    final int? savedFokusQty = fokusItem != null ? _ambilFisikQty(fokusItem) : null;
+    final String displayAngkaBesar = _keypadBufferKkso.isNotEmpty
+        ? _keypadBufferKkso
+        : (savedFokusQty != null ? '$savedFokusQty' : '-');
+
+    return Scaffold(
       key: const ValueKey('kkso_hitung_borongan'),
-      children: [
-        Container(
-          color: Colors.white,
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () => setState(() => _aktifKkso = null),
-                    icon: const Icon(Icons.arrow_back_rounded, color: _kSoGreen),
-                  ),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          doc.jenis == KksoJenis.grand ? 'GRAND OPNAME' : 'PARTIAL OPNAME',
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: _kSoGreen),
-                        ),
-                        Text(
-                          doc.areaLabel,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 11.5, color: Colors.black54),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Text(
-                    '$hitungSekarang/$total',
-                    style: gayaAngka(const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: _kSoGreen)),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: LinearProgressIndicator(
-                  value: progres,
-                  minHeight: 7,
-                  backgroundColor: _kSoGreenSoft,
-                  valueColor: const AlwaysStoppedAnimation(_kSoGreen),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE8F5E9),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: _kSoGreen.withAlpha(80)),
-                ),
-                child: const Row(
+      resizeToAvoidBottomInset: false,
+      backgroundColor: const Color(0xFFF4F7F5),
+      body: Column(
+        children: [
+          // ================= BAGIAN 1: HEADER + BANNER + LIST MINI (SCROLLABLE) =================
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.fromLTRB(10, 6, 12, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
                   children: [
-                    Icon(Icons.info_outline_rounded, color: _kSoGreen, size: 17),
-                    SizedBox(width: 8),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => setState(() => _aktifKkso = null),
+                      icon: const Icon(Icons.arrow_back_rounded, color: _kSoGreen),
+                    ),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Blind Count — Stok sistem disembunyikan untuk akurasi',
-                            style: TextStyle(color: _kSoGreen, fontSize: 11.5, fontWeight: FontWeight.w800),
+                            doc.jenis == KksoJenis.grand ? 'GRAND OPNAME' : 'PARTIAL OPNAME',
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: _kSoGreen),
                           ),
                           Text(
-                            'Hitung fisik tanpa melihat stok sistem. Hasil akan divalidasi setelah simpan.',
-                            style: TextStyle(color: Colors.black87, fontSize: 10),
+                            '${doc.areaLabel} • $hitungSekarang dari $total item',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 11, color: Colors.black54),
                           ),
                         ],
                       ),
                     ),
+                    Text(
+                      '$hitungSekarang/$total',
+                      style: gayaAngka(const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: _kSoGreen)),
+                    ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _barcodeKksoCtrl,
-                focusNode: _barcodeKksoFocus,
-                onSubmitted: _fokusKeBarcodeKkso,
-                decoration: InputDecoration(
-                  hintText: 'Scan atau ketik barcode...',
-                  isDense: true,
-                  filled: true,
-                  fillColor: const Color(0xFFF6F8F7),
-                  prefixIcon: const Icon(Icons.qr_code_scanner_rounded, color: _kSoGreen),
-                  suffixIcon: IconButton(
-                    tooltip: 'Cari & Fokus Produk',
-                    onPressed: () => _fokusKeBarcodeKkso(_barcodeKksoCtrl.text),
-                    icon: const Icon(Icons.barcode_reader, color: _kSoGreen),
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: _kSoGreen.withAlpha(110)),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: _kSoGreen.withAlpha(110)),
+                const SizedBox(height: 4),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: LinearProgressIndicator(
+                    value: progres,
+                    minHeight: 6,
+                    backgroundColor: _kSoGreenSoft,
+                    valueColor: const AlwaysStoppedAnimation(_kSoGreen),
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F5E9),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: _kSoGreen.withAlpha(80)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.visibility_off_rounded, color: _kSoGreen, size: 15),
+                      SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Blind Count — Stok sistem disembunyikan (-----)',
+                          style: TextStyle(color: _kSoGreen, fontSize: 11, fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'DAFTAR PRODUK ($total) — INPUT MANUAL',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 0.2),
+          // List Mini Unified (Expanded, scrollable, tanpa tab Belum/Sudah Hitung)
+          Expanded(
+            child: ListView.separated(
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+              itemCount: sortedMini.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 5),
+              itemBuilder: (ctx, idx) {
+                final it = sortedMini[idx];
+                final qty = _ambilFisikQty(it);
+                final sudah = qty != null;
+                final isSelected = fokusItem?.produkId == it.produkId;
+
+                return InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: () => _pilihProdukFokusKkso(it),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: sudah ? const Color(0xFFE8F5E9) : Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: isSelected
+                            ? _kSoGreen
+                            : (sudah ? _kSoGreen.withAlpha(140) : Colors.grey.shade300),
+                        width: isSelected ? 1.8 : 1.0,
                       ),
                     ),
-                    const SizedBox(width: 6),
-                    const Row(
-                      mainAxisSize: MainAxisSize.min,
+                    child: Row(
                       children: [
-                        Icon(Icons.bolt_rounded, color: _kSoGreen, size: 16),
-                        SizedBox(width: 2),
+                        Icon(
+                          sudah ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                          size: 16,
+                          color: sudah ? _kSoGreen : Colors.grey.shade400,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            sudah ? '${it.namaProduk} - OK $qty' : it.namaProduk,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: isSelected || sudah ? FontWeight.w800 : FontWeight.w600,
+                              color: sudah ? _kSoGreen : Colors.black87,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
                         Text(
-                          'Fast Entry',
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _kSoGreen),
+                          sudah ? 'OK $qty' : '-----',
+                          style: gayaAngka(
+                            TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w900,
+                              color: sudah ? _kSoGreen : Colors.black45,
+                            ),
+                          ),
                         ),
                       ],
                     ),
+                  ),
+                );
+              },
+            ),
+          ),
+
+          // ================= BAGIAN 2: CARD PRODUK TERPILIH (BESAR & FOKUS) =================
+          if (fokusItem != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 2, 12, 6),
+              child: Container(
+                padding: const EdgeInsets.all(11),
+                decoration: BoxDecoration(
+                  color: savedFokusQty != null ? const Color(0xFFE8F5E9) : Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: _kSoGreen, width: 1.6),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withAlpha(14),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 46,
+                          height: 46,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: _kSoGreen.withAlpha(80)),
+                          ),
+                          alignment: Alignment.center,
+                          child: const Icon(Icons.inventory_2_rounded, color: _kSoGreen, size: 24),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                fokusItem.namaProduk,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w900),
+                              ),
+                              Text(
+                                'SKU: ${fokusItem.kodeSku} • Stok Sistem: -----',
+                                style: const TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.w700),
+                              ),
+                              const Text(
+                                'Jumlah Stok - Edit jumlah stok ketuk angka untuk ubah',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: 10, color: _kSoGreen, fontWeight: FontWeight.w700),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        // Display Angka Jumlah Stok SANGAT BESAR (48px), readOnly tanpa keyboard sistem
+                        GestureDetector(
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                            setState(() => _keypadReplaceNext = true);
+                          },
+                          child: Container(
+                            constraints: const BoxConstraints(minWidth: 88),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: _kSoGreen, width: 1.5),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              displayAngkaBesar,
+                              style: gayaAngka(
+                                TextStyle(
+                                  fontSize: 48,
+                                  height: 1.05,
+                                  fontWeight: FontWeight.w900,
+                                  color: displayAngkaBesar == '-' ? Colors.black38 : _kSoGreen,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    // TextField dummy readOnly: true, showCursor: false agar tidak pernah memanggil keyboard sistem
+                    SizedBox(
+                      height: 0,
+                      width: 0,
+                      child: TextField(
+                        readOnly: true,
+                        showCursor: false,
+                        enableInteractiveSelection: false,
+                      ),
+                    ),
                   ],
                 ),
               ),
-              Expanded(
-                child: ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(12, 2, 12, 12),
-                  itemCount: sortedItems.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (ctx, idx) {
-                    final it = sortedItems[idx];
-                    final fisikQty = _ambilFisikQty(it);
-                    final sudahDihitung = fisikQty != null;
-                    final ctrl = _ctrlFastEntry(it.produkId, fisikQty);
-                    final focusNode = _focusFastEntry(it.produkId);
-                    final isLast = idx == sortedItems.length - 1;
-                    final nextFocus = !isLast ? _focusFastEntry(sortedItems[idx + 1].produkId) : null;
+            ),
 
-                    return AnimatedContainer(
-                      duration: const Duration(milliseconds: 220),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: sudahDihitung ? const Color(0xFFE8F5E9) : Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: sudahDihitung ? _kSoGreen : Colors.grey.shade400,
-                          width: sudahDihitung ? 1.6 : 1.1,
+          // ================= BAGIAN 3: TOMBOL SIMPAN & LANJUT + CUSTOM NUMERIC KEYPAD =================
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Selalu terlihat di atas keypad
+                Row(
+                  children: [
+                    Expanded(
+                      child: SizedBox(
+                        height: 44,
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: _kSoGreen,
+                            side: const BorderSide(color: _kSoGreen, width: 1.3),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+                          ),
+                          onPressed: () {
+                            final scanCtrl = TextEditingController();
+                            showDialog(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: const Text('Cari / Scan Barcode', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: _kSoGreen)),
+                                content: TextField(
+                                  controller: scanCtrl,
+                                  autofocus: true,
+                                  decoration: const InputDecoration(hintText: 'Masukkan SKU / Barcode...'),
+                                  onSubmitted: (v) {
+                                    Navigator.pop(ctx);
+                                    _fokusKeBarcodeKkso(v);
+                                  },
+                                ),
+                                actions: [
+                                  TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
+                                  FilledButton(
+                                    style: FilledButton.styleFrom(backgroundColor: _kSoGreen),
+                                    onPressed: () {
+                                      Navigator.pop(ctx);
+                                      _fokusKeBarcodeKkso(scanCtrl.text);
+                                    },
+                                    child: const Text('Pilih'),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.qr_code_scanner_rounded, size: 17),
+                          label: const Text('Scan SKU', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800)),
                         ),
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                width: 44,
-                                height: 44,
-                                decoration: BoxDecoration(
-                                  color: sudahDihitung ? Colors.white : const Color(0xFFF3F6F4),
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(color: Colors.black12),
-                                ),
-                                alignment: Alignment.center,
-                                child: const Icon(Icons.inventory_2_rounded, color: _kSoGreen, size: 22),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      it.namaProduk,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      'SKU: ${it.kodeSku}${it.kategori.isNotEmpty ? " • ${it.kategori}" : ""}',
-                                      style: const TextStyle(fontSize: 11, color: Colors.black54),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    const Text(
-                                      'Stok Sistem: -----',
-                                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: _kSoGreen),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Icon(
-                                sudahDihitung
-                                    ? Icons.check_circle_rounded
-                                    : Icons.radio_button_unchecked_rounded,
-                                color: sudahDihitung ? _kSoGreen : Colors.grey.shade400,
-                                size: 24,
-                              ),
-                            ],
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 2,
+                      child: SizedBox(
+                        height: 44,
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _kSoGreen,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
                           ),
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              // Tombol 0 cepat untuk rak kosong
-                              InkWell(
-                                borderRadius: BorderRadius.circular(10),
-                                onTap: () => _setQtyManualKkso(it.produkId, 0),
-                                child: Container(
-                                  height: 56,
-                                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                                  decoration: BoxDecoration(
-                                    color: fisikQty == 0 ? _kSoGreen : Colors.white,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: _kSoGreen, width: 1.3),
-                                  ),
-                                  alignment: Alignment.center,
-                                  child: Text(
-                                    '0',
-                                    style: gayaAngka(
-                                      TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w900,
-                                        color: fisikQty == 0 ? Colors.white : _kSoGreen,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              // Komponen unified: [-] [TextField angka besar >= 56px] [+]
-                              Expanded(
-                                child: Container(
-                                  height: 56,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: _kSoGreen, width: 1.5),
-                                  ),
-                                  clipBehavior: Clip.antiAlias,
-                                  child: Row(
-                                    children: [
-                                      InkWell(
-                                        onTap: () => _ubahQtyStepperKkso(it, -1),
-                                        onLongPress: () => _setQtyManualKkso(it.produkId, 0),
-                                        child: Container(
-                                          width: 54,
-                                          height: 56,
-                                          alignment: Alignment.center,
-                                          decoration: BoxDecoration(
-                                            border: Border(
-                                              right: BorderSide(color: _kSoGreen.withAlpha(70)),
-                                            ),
-                                          ),
-                                          child: const Icon(Icons.remove_rounded, color: _kSoGreen, size: 24),
-                                        ),
-                                      ),
-                                      Expanded(
-                                        child: TextField(
-                                          controller: ctrl,
-                                          focusNode: focusNode,
-                                          keyboardType: TextInputType.number,
-                                          textInputAction: isLast ? TextInputAction.done : TextInputAction.next,
-                                          textAlign: TextAlign.center,
-                                          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                                          style: gayaAngka(
-                                            const TextStyle(
-                                              fontSize: 22,
-                                              fontWeight: FontWeight.w900,
-                                              color: _kSoGreen,
-                                            ),
-                                          ),
-                                          onTap: () {
-                                            if (ctrl.text.isNotEmpty) {
-                                              ctrl.selection = TextSelection(
-                                                baseOffset: 0,
-                                                extentOffset: ctrl.text.length,
-                                              );
-                                            }
-                                          },
-                                          onChanged: (val) {
-                                            final trimmed = val.trim();
-                                            if (trimmed.isEmpty) {
-                                              _setQtyManualKkso(it.produkId, null, syncController: false);
-                                            } else {
-                                              final parsed = int.tryParse(trimmed);
-                                              if (parsed != null) {
-                                                _setQtyManualKkso(
-                                                  it.produkId,
-                                                  parsed < 0 ? 0 : parsed,
-                                                  syncController: false,
-                                                );
-                                              }
-                                            }
-                                          },
-                                          onSubmitted: (_) {
-                                            if (nextFocus != null) {
-                                              FocusScope.of(context).requestFocus(nextFocus);
-                                            } else {
-                                              FocusScope.of(context).unfocus();
-                                            }
-                                          },
-                                          decoration: const InputDecoration(
-                                            hintText: '-',
-                                            hintStyle: TextStyle(
-                                              fontSize: 22,
-                                              fontWeight: FontWeight.w900,
-                                              color: Colors.black38,
-                                            ),
-                                            border: InputBorder.none,
-                                            isDense: true,
-                                            contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 12),
-                                          ),
-                                        ),
-                                      ),
-                                      InkWell(
-                                        onTap: () => _ubahQtyStepperKkso(it, 1),
-                                        child: Container(
-                                          width: 54,
-                                          height: 56,
-                                          color: _kSoGreen,
-                                          alignment: Alignment.center,
-                                          child: const Icon(Icons.add_rounded, color: Colors.white, size: 24),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
+                          onPressed: () => _simpanProgresHitungKkso(ajukanReview: semuaSelesai),
+                          icon: Icon(
+                            semuaSelesai ? Icons.fact_check_rounded : Icons.check_circle_outline_rounded,
+                            size: 17,
                           ),
-                          const SizedBox(height: 4),
-                          const Text(
-                            'Jumlah (ketik angka atau +/- • tekan 0 jika rak kosong)',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(fontSize: 10, color: Colors.black54, fontWeight: FontWeight.w600),
+                          label: Text(
+                            semuaSelesai ? 'Minta Review ($hitungSekarang/$total)' : 'Simpan & Lanjut $hitungSekarang/$total',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900),
                           ),
-                        ],
+                        ),
                       ),
-                    );
-                  },
+                    ),
+                  ],
                 ),
-              ),
-            ],
+                const SizedBox(height: 6),
+                CustomKeypad(
+                  primaryColor: _kSoGreen,
+                  onDigit: _onKeypadDigit,
+                  onClear: _onKeypadClear,
+                  onEnter: fokusItem == null
+                      ? () {}
+                      : () => _simpanItemFokusDanLanjut(doc, fokusItem!),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SizedBox(
+                        height: 44,
+                        child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.black87,
+                            side: BorderSide(color: Colors.grey.shade400),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+                          ),
+                          onPressed: fokusItem == null ? null : () => _batalInputFokusKkso(fokusItem!),
+                          child: const Text('Batal', style: TextStyle(fontWeight: FontWeight.w800)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: SizedBox(
+                        height: 44,
+                        child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _kSoGreen,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+                          ),
+                          onPressed: fokusItem == null
+                              ? null
+                              : () => _simpanItemFokusDanLanjut(doc, fokusItem!),
+                          child: const Text('Simpan Stok', style: TextStyle(fontWeight: FontWeight.w900)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
-        Container(
-          color: Colors.white,
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-          child: Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _kSoGreen,
-                    side: const BorderSide(color: _kSoGreen, width: 1.3),
-                    padding: const EdgeInsets.symmetric(vertical: 13),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  onPressed: () {
-                    if (_barcodeKksoCtrl.text.trim().isNotEmpty) {
-                      _fokusKeBarcodeKkso(_barcodeKksoCtrl.text);
-                    } else {
-                      FocusScope.of(context).requestFocus(_barcodeKksoFocus);
-                    }
-                  },
-                  icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
-                  label: const Text('Pindai Barcode', style: TextStyle(fontWeight: FontWeight.w800)),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: _kSoGreen,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 13),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  onPressed: () => _simpanProgresHitungKkso(ajukanReview: semuaSelesai),
-                  icon: Icon(
-                    semuaSelesai ? Icons.fact_check_rounded : Icons.check_circle_outline_rounded,
-                    size: 18,
-                  ),
-                  label: Text(
-                    semuaSelesai ? 'Minta Review' : 'Simpan & Lanjut $hitungSekarang/$total',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -1393,7 +1396,6 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
     _barcodeKksoFocus.dispose();
     _catatanReviewKksoCtrl.dispose();
     _petugasDoubleCountCtrl.dispose();
-    _bersihkanFastEntryControllers();
     for (final c in _soControllers.values) {
       c.dispose();
     }
@@ -2681,6 +2683,113 @@ class _KotakRingkasanReview extends StatelessWidget {
             style: gayaAngka(TextStyle(fontSize: 13.5, fontWeight: FontWeight.w900, color: warnaNilai)),
           ),
         ],
+      ),
+    );
+  }
+}
+
+
+class CustomKeypad extends StatelessWidget {
+  final Color primaryColor;
+  final void Function(String digit) onDigit;
+  final VoidCallback onClear;
+  final VoidCallback onEnter;
+
+  const CustomKeypad({
+    super.key,
+    required this.primaryColor,
+    required this.onDigit,
+    required this.onClear,
+    required this.onEnter,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const rows = [
+      ['1', '2', '3'],
+      ['4', '5', '6'],
+      ['7', '8', '9'],
+      ['C', '0', 'ENTER'],
+    ];
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (int r = 0; r < rows.length; r++) ...[
+          Row(
+            children: [
+              for (int c = 0; c < rows[r].length; c++) ...[
+                Expanded(
+                  child: _buildKey(rows[r][c]),
+                ),
+                if (c < rows[r].length - 1) const SizedBox(width: 6),
+              ],
+            ],
+          ),
+          if (r < rows.length - 1) const SizedBox(height: 6),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildKey(String label) {
+    final isClear = label == 'C';
+    final isEnter = label == 'ENTER';
+
+    final Color bgColor = isEnter
+        ? primaryColor
+        : (isClear ? const Color(0xFFFEE2E2) : const Color(0xFFF4F7F5));
+    final Color fgColor = isEnter
+        ? Colors.white
+        : (isClear ? const Color(0xFFB91C1C) : Colors.black87);
+
+    return Material(
+      color: bgColor,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          if (isClear) {
+            onClear();
+          } else if (isEnter) {
+            onEnter();
+          } else {
+            onDigit(label);
+          }
+        },
+        child: Container(
+          height: 56,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isEnter ? primaryColor : Colors.black12,
+              width: 1.1,
+            ),
+          ),
+          alignment: Alignment.center,
+          child: isEnter
+              ? const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.keyboard_return_rounded, color: Colors.white, size: 22),
+                    SizedBox(width: 4),
+                    Text(
+                      'Enter',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Colors.white),
+                    ),
+                  ],
+                )
+              : Text(
+                  label,
+                  style: gayaAngka(
+                    TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      color: fgColor,
+                    ),
+                  ),
+                ),
+        ),
       ),
     );
   }
