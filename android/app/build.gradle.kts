@@ -21,11 +21,25 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.kasir_pos"
+        applicationId = "com.blovy.app"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+    }
+
+    flavorDimensions += "app"
+    productFlavors {
+        create("pos") {
+            dimension = "app"
+            applicationId = "com.blovy.pos"
+            resValue("string", "app_name", "BLOVY POS")
+        }
+        create("sis") {
+            dimension = "app"
+            applicationId = "com.blovy.sis"
+            resValue("string", "app_name", "BLOVY SIS")
+        }
     }
 
     buildTypes {

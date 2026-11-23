@@ -22,13 +22,13 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
       - name: Build BLOVY POS APK
-        run: flutter build apk --release -t lib/main_pos.dart
+        run: flutter build apk --release --flavor pos -t lib/main_pos.dart
       - name: Save BLOVY POS APK
-        run: cp build/app/outputs/flutter-apk/app-release.apk blovy-pos.apk
+        run: cp build/app/outputs/flutter-apk/app-pos-release.apk blovy-pos.apk
       - name: Build BLOVY SIS APK
-        run: flutter build apk --release -t lib/main_sis.dart
+        run: flutter build apk --release --flavor sis -t lib/main_sis.dart
       - name: Save BLOVY SIS APK
-        run: cp build/app/outputs/flutter-apk/app-release.apk blovy-sis.apk
+        run: cp build/app/outputs/flutter-apk/app-sis-release.apk blovy-sis.apk
       - name: Upload BLOVY POS APK
         uses: actions/upload-artifact@v4
         with:
