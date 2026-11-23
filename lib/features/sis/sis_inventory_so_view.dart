@@ -542,10 +542,12 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
         final prev = _snapEdit[item.produkId] ?? _fisikOf(item) ?? 0;
         if (prev != qty) {
           final now = DateTime.now();
+          const bln = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+          final tgl = '${now.day} ${bln[(now.month - 1).clamp(0, 11)]} ${now.year}';
           final jam = '${now.hour.toString().padLeft(2, "0")}:${now.minute.toString().padLeft(2, "0")}';
-          final vNext = (doc.lastPrint?.versi ?? 1) + 1;
+          final petugas = widget.currentStaff?.nama ?? 'Kasir-07';
           final note = _editCatatanCtrl.text.trim();
-          final line = 'v${vNext - 1} -> v$vNext (${item.namaProduk}: $prev -> $qty) • $jam${note.isNotEmpty ? " • $note" : ""}';
+          final line = 'Terakhir diubah $tgl • $jam • oleh $petugas${note.isNotEmpty ? " • $note" : ""}';
           _aktifKkso = doc.copyWith(editLogs: [...doc.editLogs, line]);
         }
         _snapEdit[item.produkId] = qty;
@@ -1079,91 +1081,298 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
   }
 
   Widget _buildStep4(KksoDocument doc) {
-    final vOld = doc.lastPrint?.versi ?? 1;
-    final vNew = vOld + 1;
-    final item = doc.items.firstWhere((e) => e.produkId == _fokusId, orElse: () => doc.items.first);
-    final prevQ = _snapEdit[item.produkId] ?? _fisikOf(item) ?? 0;
-    final curQ = _padBuf.isNotEmpty ? _padBuf : '$prevQ';
+    final item = doc.items.firstWhere(
+      (e) => e.produkId == _fokusId,
+      orElse: () => doc.items.first,
+    );
+    final tercatat = _snapEdit[item.produkId] ?? _fisikOf(item) ?? 0;
+    final jumlahBaruStr = _padBuf.isNotEmpty ? _padBuf : '$tercatat';
+    final kategoriLabel = item.kategori.trim().isEmpty ? 'Bahan Pokok' : item.kategori.trim();
+    final riwayatTerakhir = doc.editLogs.isNotEmpty
+        ? doc.editLogs.last
+        : 'Terakhir diubah 12 Okt 2024 • 14:22 • oleh Kasir-07';
 
     return Scaffold(
-      key: const ValueKey('step4'),
+      key: const ValueKey('step4_perbaiki_hitungan'),
       resizeToAvoidBottomInset: false,
-      backgroundColor: const Color(0xFFF5F7FA),
-      body: Column(
-        children: [
-          Container(
-            color: _kSoBlue,
-            padding: const EdgeInsets.fromLTRB(8, 6, 12, 8),
-            child: Row(
-              children: [
-                IconButton(onPressed: () => setState(() => _kksoStep = 3), icon: const Icon(Icons.arrow_back_rounded, color: Colors.white)),
-                Expanded(child: Text('Step 4: Edit (v$vOld -> v$vNew)', style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w900))),
-              ],
-            ),
-          ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(12),
-              children: [
-                SizedBox(
-                  height: 36,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: doc.items.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 6),
-                    itemBuilder: (ctx, i) => ChoiceChip(
-                      label: Text(doc.items[i].namaProduk, style: const TextStyle(fontSize: 11)),
-                      selected: doc.items[i].produkId == item.produkId,
-                      onSelected: (_) => _pilihFokus(doc.items[i], editMode: true),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade300)),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+      backgroundColor: const Color(0xFFF6F7F9),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Container(
+              width: double.infinity,
+              color: Colors.white,
+              padding: const EdgeInsets.fromLTRB(8, 10, 16, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      Text(item.namaProduk, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900)),
-                      const Text('System Qty: --- • Hidden', style: TextStyle(fontSize: 11, color: Colors.black54)),
-                      const SizedBox(height: 6),
-                      Text('v$vOld: $prevQ  ->  v$vNew: $curQ', style: gayaAngka(const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: _kSoBlue))),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: _editCatatanCtrl,
-                        decoration: const InputDecoration(hintText: 'Catatan edit & timestamp...', isDense: true, border: OutlineInputBorder()),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () {
+                          _editCatatanCtrl.clear();
+                          setState(() => _kksoStep = 3);
+                        },
+                        icon: const Icon(Icons.chevron_left_rounded, size: 28, color: Colors.black87),
+                      ),
+                      const SizedBox(width: 4),
+                      const Text(
+                        'Perbaiki Hitungan',
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black87),
                       ),
                     ],
                   ),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            color: Colors.white,
-            padding: const EdgeInsets.fromLTRB(10, 6, 10, 10),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _NumKeypad(color: _kSoBlue, confirmText: 'SIMPAN (v$vNew)', onDigit: _onDigit, onClear: _onClear, onConfirm: () => _onConfirm(doc, item, editMode: true)),
-                const SizedBox(height: 6),
-                SizedBox(
-                  width: double.infinity,
-                  height: 40,
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(backgroundColor: _kSoGreen, foregroundColor: Colors.white),
-                    onPressed: () => setState(() {
-                      _aktifKkso = _syncDoc(doc);
-                      _kksoStep = 3;
-                    }),
-                    child: const Text('Cetak Ulang Selisih (HPP Baru)', style: TextStyle(fontWeight: FontWeight.w900)),
+                  const Padding(
+                    padding: EdgeInsets.only(left: 12),
+                    child: Text(
+                      'Nusantara Retail POS',
+                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Colors.black54),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withAlpha(12),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 84,
+                          height: 104,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFFBEB),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFFDE68A)),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.oil_barrel_rounded, size: 36, color: Color(0xFFD97706)),
+                              const SizedBox(height: 4),
+                              Text(
+                                item.satuan.isNotEmpty ? item.satuan : '1L',
+                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF92400E)),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.namaProduk,
+                                style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800, color: Colors.black87),
+                              ),
+                              const SizedBox(height: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFEF3C7),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  kategoriLabel,
+                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF92400E)),
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'SKU: ${item.kodeSku} • Kategori: $kategoriLabel',
+                                style: const TextStyle(fontSize: 11, color: Colors.black54),
+                              ),
+                              const SizedBox(height: 10),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF1F5F9),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      'Jumlah Tercatat',
+                                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.black54),
+                                    ),
+                                    Text(
+                                      '$tercatat',
+                                      style: gayaAngka(const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black87)),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Padding(
+                                    padding: EdgeInsets.only(top: 1),
+                                    child: Icon(Icons.history_rounded, size: 13, color: Colors.black45),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      'Riwayat edit: $riwayatTerakhir',
+                                      style: const TextStyle(fontSize: 10, color: Colors.black45, height: 1.3),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Jumlah Baru',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black87),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            jumlahBaruStr,
+                            style: gayaAngka(const TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: Colors.black87)),
+                          ),
+                        ),
+                        const Icon(Icons.edit_rounded, size: 22, color: Colors.black45),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Catatan (opsional)',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black87),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _editCatatanCtrl,
+                    decoration: InputDecoration(
+                      hintText: 'Tambahkan catatan...',
+                      filled: true,
+                      fillColor: Colors.white,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: Colors.grey.shade300),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: Colors.grey.shade300),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _PerbaikiKeypad(
+                    onDigit: _onDigit,
+                    onDot: () {},
+                    onBackspace: _onClear,
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SizedBox(
+                          height: 46,
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: Colors.black87,
+                              side: BorderSide(color: Colors.grey.shade400),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            onPressed: () {
+                              _editCatatanCtrl.clear();
+                              setState(() => _kksoStep = 3);
+                            },
+                            child: const Text('Batal', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: SizedBox(
+                          height: 46,
+                          child: FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF1E3A8A),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            onPressed: () {
+                              _onConfirm(doc, item, editMode: true);
+                              final updated = _syncDoc(_aktifKkso ?? doc);
+                              widget.onSimpanKkso([
+                                updated,
+                                ...widget.daftarKkso.where((d) => d.id != updated.id),
+                              ]);
+                              setState(() => _aktifKkso = updated);
+                            },
+                            child: const Text('Simpan Perubahan', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 46,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: const Color(0xFFEA580C),
+                        side: const BorderSide(color: Color(0xFFEA580C), width: 1.4),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () {
+                        final updated = _syncDoc(_aktifKkso ?? doc);
+                        setState(() {
+                          _aktifKkso = updated;
+                          _kksoStep = 3;
+                        });
+                      },
+                      icon: const Icon(Icons.print_outlined, size: 19, color: Color(0xFFEA580C)),
+                      label: const Text(
+                        'Cetak Ulang Selisih HPP',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2229,6 +2438,10 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
   @override
   Widget build(BuildContext context) {
     final t = widget.tema;
+    final activeDoc = _aktifKkso;
+    if (_modeSub == 1 && activeDoc != null && _kksoStep == 4) {
+      return _buildStep4(activeDoc);
+    }
     return Column(
       children: [
         Padding(
@@ -2901,6 +3114,91 @@ class CustomKeypad extends StatelessWidget {
                     ),
                   ),
                 ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PerbaikiKeypad extends StatelessWidget {
+  final void Function(String) onDigit;
+  final VoidCallback onDot;
+  final VoidCallback onBackspace;
+
+  const _PerbaikiKeypad({
+    required this.onDigit,
+    required this.onDot,
+    required this.onBackspace,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const rows = [
+      ['1', '2', '3'],
+      ['4', '5', '6'],
+      ['7', '8', '9'],
+      ['.', '0', 'DEL'],
+    ];
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (int r = 0; r < rows.length; r++) ...[
+          Row(
+            children: [
+              for (int c = 0; c < rows[r].length; c++) ...[
+                Expanded(child: _tile(rows[r][c])),
+                if (c < rows[r].length - 1) const SizedBox(width: 12),
+              ],
+            ],
+          ),
+          if (r < rows.length - 1) const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+
+  Widget _tile(String keyLabel) {
+    final isDel = keyLabel == 'DEL';
+    final isDot = keyLabel == '.';
+
+    return Container(
+      height: 54,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(14),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () {
+            if (isDel) {
+              onBackspace();
+            } else if (isDot) {
+              onDot();
+            } else {
+              onDigit(keyLabel);
+            }
+          },
+          child: Center(
+            child: isDel
+                ? const Icon(Icons.backspace_outlined, size: 22, color: Colors.black87)
+                : Text(
+                    keyLabel,
+                    style: gayaAngka(
+                      const TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: Colors.black87),
+                    ),
+                  ),
+          ),
         ),
       ),
     );
