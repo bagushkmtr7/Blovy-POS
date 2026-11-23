@@ -688,8 +688,9 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
 
     setState(() {
       _busyAdjust = false;
-      _aktifKkso = null;
-      _kksoStep = 0;
+      _step6Doc = finalDoc;
+      _aktifKkso = finalDoc;
+      _kksoStep = 6;
       _pinSisCtrl.clear();
     });
   }
