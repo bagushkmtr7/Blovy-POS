@@ -682,7 +682,14 @@ class _SisAuditSystemViewState extends State<SisAuditSystemView>
       itemBuilder: (ctx, i) {
         final sh = shifts[i];
         final z = widget.mapClerekZReport[sh.id];
-        final selisih = sh.kasAktualTutup - (sh.modalAwal + sh.penjualanTunai - sh.pengeluaranKas);
+        final trxShift = widget.daftarTransaksi.where((tr) => tr.shiftId == sh.id).toList();
+        final nonTunaiTrx = trxShift
+            .where((tr) {
+              final m = tr.metodeBayar.toLowerCase();
+              return !m.contains('tunai') && !m.contains('cash');
+            })
+            .fold<int>(0, (acc, tr) => acc + tr.totalBelanja);
+        final nonTunaiEfektif = sh.penjualanNonTunai > 0 ? sh.penjualanNonTunai : nonTunaiTrx;
         return Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
@@ -704,7 +711,10 @@ class _SisAuditSystemViewState extends State<SisAuditSystemView>
               ),
               const SizedBox(height: 4),
               Text('Buka: ${formatTanggalWaktu(sh.waktuBuka)} • Modal ${_ringkasRp(sh.modalAwal)}', style: TextStyle(fontSize: 11, color: t.textSecondary)),
-              Text('Tunai ${_ringkasRp(sh.penjualanTunai)} • Non-Tunai ${_ringkasRp(sh.penjualanNonTunai)} • Selisih ${_ringkasRp(selisih)}', style: gayaAngka(const TextStyle(fontSize: 11, fontWeight: FontWeight.w700))),
+              const Text(
+                'Tunai Sistem: — • Non-Tunai: — • Selisih: —',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+              ),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
@@ -725,11 +735,14 @@ class _SisAuditSystemViewState extends State<SisAuditSystemView>
                           waktuClerek: DateTime.now(),
                           modalAwalSistem: sh.modalAwal,
                           penjualanTunaiSistem: sh.penjualanTunai,
-                          penjualanNonTunaiSistem: sh.penjualanNonTunai,
+                          penjualanNonTunaiSistem: nonTunaiEfektif,
                           pengeluaranLaciSistem: sh.pengeluaranKas,
                           kasbonBaruSistem: 0,
-                          jumlahStrukSukses: 0,
-                          totalItemTerjual: 0,
+                          jumlahStrukSukses: trxShift.length,
+                          totalItemTerjual: trxShift.fold<int>(
+                            0,
+                            (acc, tr) => acc + tr.items.fold<int>(0, (s2, it) => s2 + it.qty.toInt()),
+                          ),
                         ),
                       ),
                     ),
