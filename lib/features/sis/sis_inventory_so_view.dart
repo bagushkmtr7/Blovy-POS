@@ -895,16 +895,42 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                SizedBox(
-                  width: double.infinity,
-                  height: 38,
-                  child: OutlinedButton(
-                    style: OutlinedButton.styleFrom(foregroundColor: _kSoGreen, side: const BorderSide(color: _kSoGreen)),
-                    onPressed: () => setState(() {
-                      _aktifKkso = _syncDoc(doc);
-                      _kksoStep = 2;
-                    }),
-                    child: Text('Step 2: Cek Qty ($doneCount/$total)', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
+                Material(
+                  color: doneCount > 0 ? _kSoGreenSoft : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(10),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () {
+                      final synced = _syncDoc(doc);
+                      widget.onSimpanKkso([
+                        synced,
+                        ...widget.daftarKkso.where((d) => d.id != synced.id),
+                      ]);
+                      setState(() {
+                        _aktifKkso = synced;
+                        _kksoStep = 2;
+                      });
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: _kSoGreen, width: 1.4),
+                      ),
+                      alignment: Alignment.center,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.fact_check_rounded, size: 17, color: _kSoGreen),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Step 2: Cek Qty ($doneCount/$total)',
+                            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900, color: _kSoGreen),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 6),
