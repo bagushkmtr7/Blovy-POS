@@ -16,6 +16,7 @@ class StorageService {
   static const String _kPromo = 'pos_pro_promo';
   static const String _kHold = 'pos_pro_hold';
   static const String _kTema = 'pos_pro_tema';
+  static const String _kKkso = 'pos_pro_kkso';
 
   static List<AkunStaff> staffDefault() => const [
         AkunStaff(
@@ -339,6 +340,22 @@ class StorageService {
   Future<void> simpanHold(List<KeranjangTertahan> list) async {
     final p = await SharedPreferences.getInstance();
     await p.setString(_kHold, jsonEncode(list.map((e) => e.toMap()).toList()));
+  }
+
+  Future<List<KksoDocument>> muatKkso() async {
+    final p = await SharedPreferences.getInstance();
+    final raw = p.getString(_kKkso);
+    if (raw == null) return [];
+    return (jsonDecode(raw) as List)
+        .map((e) => KksoDocument.fromMap(Map<String, dynamic>.from(e as Map)))
+        .toList();
+  }
+
+  Future<void> simpanKkso(List<KksoDocument> list) async {
+    final p = await SharedPreferences.getInstance();
+    final data = list.map((e) => e.toMap()).toList();
+    await p.setString(_kKkso, jsonEncode(data));
+    unawaited(RealtimeSyncService.instance.pushCollection(_kKkso, data));
   }
 
   String exportBackupJson({

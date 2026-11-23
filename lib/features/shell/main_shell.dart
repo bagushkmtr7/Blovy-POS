@@ -42,6 +42,7 @@ class _PosMainShellState extends State<PosMainShell> {
   List<MemberPelanggan> _daftarMember = [];
   List<PromoVoucher> _daftarPromo = [];
   List<KeranjangTertahan> _daftarHold = [];
+  List<KksoDocument> _daftarKkso = [];
 
   AkunStaff? _currentStaff;
   final Map<String, int> _keranjang = {};
@@ -77,6 +78,7 @@ class _PosMainShellState extends State<PosMainShell> {
     final member = await _storage.muatMember();
     final promo = await _storage.muatPromo();
     final hold = await _storage.muatHold();
+    final kkso = await _storage.muatKkso();
 
     if (!mounted) return;
     setState(() {
@@ -90,6 +92,7 @@ class _PosMainShellState extends State<PosMainShell> {
       _daftarMember = member;
       _daftarPromo = promo;
       _daftarHold = hold;
+      _daftarKkso = kkso;
       _loading = false;
     });
   }
@@ -682,6 +685,7 @@ class _PosMainShellState extends State<PosMainShell> {
       _storage.simpanPromo(_daftarPromo);
       _storage.simpanTransaksi(_daftarTransaksi);
       _storage.simpanPengeluaran(_daftarPengeluaran);
+      _storage.simpanKkso(_daftarKkso);
       _info('Database berhasil dipulihkan dari JSON.');
     } catch (_) {
       _info('Format JSON backup tidak valid.');
@@ -713,7 +717,7 @@ class _PosMainShellState extends State<PosMainShell> {
     }
 
     final staff = _currentStaff!;
-    if (staff.isStoreSystem) {
+    if (staff.isStoreSystem && widget.mode != AppTargetMode.posOnly) {
       return StoreInformationSystemShell(
         onBayarKasbon: _bayarKasbon,
         tema: cariTemaById(null),
@@ -727,6 +731,11 @@ class _PosMainShellState extends State<PosMainShell> {
         daftarPromo: _daftarPromo,
         daftarTransaksi: _daftarTransaksi,
         daftarPengeluaran: _daftarPengeluaran,
+        daftarKkso: _daftarKkso,
+        onSimpanKkso: (list) {
+          setState(() => _daftarKkso = List<KksoDocument>.from(list));
+          _storage.simpanKkso(list);
+        },
         onSimpanProduk: _simpanProduk,
         onHapusProduk: _hapusProduk,
         onMutasiStok: _mutasiStok,

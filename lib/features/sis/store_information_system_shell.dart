@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
@@ -11,7 +10,10 @@ import '../../models/sis_models.dart';
 import '../../widgets/pos_components.dart';
 import 'sis_audit_system_view.dart';
 import 'sis_promo_crm_view.dart';
+import 'executive_dashboard_view.dart';
 import 'sis_inventory_so_view.dart';
+
+void _noopKksoList(List<KksoDocument> _) {}
 
 class StoreInformationSystemShell extends StatefulWidget {
   final AppThemeConfig tema;
@@ -25,6 +27,8 @@ class StoreInformationSystemShell extends StatefulWidget {
   final List<PromoVoucher> daftarPromo;
   final List<TransaksiPos> daftarTransaksi;
   final List<PengeluaranToko> daftarPengeluaran;
+  final List<KksoDocument> daftarKkso;
+  final ValueChanged<List<KksoDocument>> onSimpanKkso;
 
   final void Function(Produk produk, bool isBaru) onSimpanProduk;
   final void Function(String produkId) onHapusProduk;
@@ -67,6 +71,8 @@ class StoreInformationSystemShell extends StatefulWidget {
     required this.daftarPromo,
     required this.daftarTransaksi,
     required this.daftarPengeluaran,
+    this.daftarKkso = const [],
+    this.onSimpanKkso = _noopKksoList,
     required this.onSimpanProduk,
     required this.onHapusProduk,
     required this.onMutasiStok,
@@ -185,38 +191,6 @@ class _StoreInformationSystemShellState
   
 
   // ==================== KALKULASI PERIODE ====================
-
-  List<TransaksiPos> get _trxPeriode {
-    final now = DateTime.now();
-    return widget.daftarTransaksi.where((trx) {
-      if (_periodeLaporan == 'Semua') return true;
-      if (_periodeLaporan == 'Hari Ini') {
-        return trx.tanggal.year == now.year &&
-            trx.tanggal.month == now.month &&
-            trx.tanggal.day == now.day;
-      }
-      final batas = _periodeLaporan == '7 Hari'
-          ? now.subtract(const Duration(days: 7))
-          : now.subtract(const Duration(days: 30));
-      return trx.tanggal.isAfter(batas);
-    }).toList();
-  }
-
-  List<PengeluaranToko> get _expPeriode {
-    final now = DateTime.now();
-    return widget.daftarPengeluaran.where((exp) {
-      if (_periodeLaporan == 'Semua') return true;
-      if (_periodeLaporan == 'Hari Ini') {
-        return exp.tanggal.year == now.year &&
-            exp.tanggal.month == now.month &&
-            exp.tanggal.day == now.day;
-      }
-      final batas = _periodeLaporan == '7 Hari'
-          ? now.subtract(const Duration(days: 7))
-          : now.subtract(const Duration(days: 30));
-      return exp.tanggal.isAfter(batas);
-    }).toList();
-  }
 
   // ==================== DIALOG MASTER SKU & LABEL ====================
 
@@ -834,8 +808,13 @@ class _StoreInformationSystemShellState
           _buildDashboardTab(t),
           SisInventorySoView(
             tema: t,
+            toko: widget.toko,
+            currentStaff: widget.currentStaff,
+            daftarStaff: widget.daftarStaff,
             daftarProduk: widget.daftarProduk,
             daftarLogStok: widget.daftarLogStok,
+            daftarKkso: widget.daftarKkso,
+            onSimpanKkso: widget.onSimpanKkso,
             onSimpanProduk: widget.onSimpanProduk,
             onHapusProduk: widget.onHapusProduk,
             onMutasiStok: widget.onMutasiStok,
@@ -859,6 +838,7 @@ class _StoreInformationSystemShellState
             daftarStaff: widget.daftarStaff,
             daftarShift: widget.daftarShift,
             daftarTransaksi: widget.daftarTransaksi,
+            daftarKkso: widget.daftarKkso,
             mapClerekZReport: _mapClerekZReport,
             onLihatStruk: (trx) => showDialog(
               context: context,
@@ -1033,386 +1013,109 @@ class _StoreInformationSystemShellState
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
-          child: SegmentedButton<int>(
-            segments: const [
-              ButtonSegment(value: 0, label: Text('Laba Rugi & KPI')),
-              ButtonSegment(value: 1, label: Text('Dead Stock & Slow Moving')),
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => setState(() => _subDash = 0),
+                        borderRadius: BorderRadius.circular(999),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 180),
+                          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                          decoration: BoxDecoration(
+                            color: _subDash == 0 ? t.primaryColor : t.inputColor,
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: _subDash == 0 ? t.primaryColor : t.borderColor,
+                            ),
+                          ),
+                          child: Center(
+                            child: Text(
+                              'Control Tower',
+                              maxLines: 1,
+                              softWrap: false,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w800,
+                                color: _subDash == 0 ? Colors.white : t.textSecondary,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 7),
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => setState(() => _subDash = 1),
+                        borderRadius: BorderRadius.circular(999),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 180),
+                          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                          decoration: BoxDecoration(
+                            color: _subDash == 1 ? t.primaryColor : t.inputColor,
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: _subDash == 1 ? t.primaryColor : t.borderColor,
+                            ),
+                          ),
+                          child: Center(
+                            child: Text(
+                              'Dead Stock',
+                              maxLines: 1,
+                              softWrap: false,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w800,
+                                color: _subDash == 1 ? Colors.white : t.textSecondary,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.tonalIcon(
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: _dialogTambahPengeluaran,
+                icon: const Icon(Icons.receipt_long_rounded, size: 15),
+                label: const Text(
+                  '+ Biaya',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
+                ),
+              ),
             ],
-            selected: {_subDash},
-            onSelectionChanged: (v) => setState(() => _subDash = v.first),
           ),
         ),
         Expanded(
           child: _subDash == 0
-              ? _buildSubLabaRugi(t)
+              ? ExecutiveDashboardView(
+                  tema: t,
+                  toko: widget.toko,
+                  daftarProduk: widget.daftarProduk,
+                  daftarTransaksi: widget.daftarTransaksi,
+                  daftarPengeluaran: widget.daftarPengeluaran,
+                  daftarShift: widget.daftarShift,
+                  daftarMember: widget.daftarMember,
+                  periodeTerpilih: _periodeLaporan,
+                  onUbahPeriode: (p) => setState(() => _periodeLaporan = p),
+                  onMutasiStok: widget.onMutasiStok,
+                  onBukaTabDeadStock: () => setState(() => _subDash = 1),
+                )
               : _buildSubDeadStock(t),
         ),
-      ],
-    );
-  }
-
-  Widget _buildSubLabaRugi(AppThemeConfig t) {
-    final trxList = _trxPeriode;
-    final expList = _expPeriode;
-
-    final omzet = trxList.fold<int>(0, (s, e) => s + e.totalBelanja);
-    final labaKotor = trxList.fold<int>(0, (s, e) => s + e.estimasiLabaKotor);
-    final totalHpp = trxList.fold<int>(
-      0,
-      (s, e) =>
-          s +
-          e.items.fold<int>(0, (si, item) => si + (item.hargaModal * item.qty)),
-    );
-    final totalBiaya = expList.fold<int>(0, (s, e) => s + e.nominal);
-    final labaBersih = labaKotor - totalBiaya;
-    final marginPersen = omzet > 0 ? (labaKotor / omzet) * 100 : 0.0;
-    final avgBasket = trxList.isEmpty ? 0 : (omzet ~/ trxList.length);
-
-    final nilaiAsetHpp = widget.daftarProduk
-        .fold<int>(0, (s, p) => s + (p.hargaModal * p.stok));
-    final nilaiAsetJual = widget.daftarProduk
-        .fold<int>(0, (s, p) => s + (p.hargaJual * p.stok));
-    final stokMenipisCount = widget.daftarProduk
-        .where((p) => p.stok <= p.minStokAlert)
-        .length;
-    final totalKasbon = widget.daftarTransaksi
-        .where((e) => !e.statusLunas)
-        .fold<int>(
-            0,
-            (s, e) =>
-                s + (e.totalBelanja - e.bayar).clamp(0, 999999999).toInt());
-
-    final mapProdukQty = <String, int>{};
-    final mapProdukOmzet = <String, int>{};
-    final mapKasirOmzet = <String, int>{};
-    final mapKasirTrx = <String, int>{};
-
-    for (final trx in trxList) {
-      mapKasirOmzet[trx.namaKasir] =
-          (mapKasirOmzet[trx.namaKasir] ?? 0) + trx.totalBelanja;
-      mapKasirTrx[trx.namaKasir] = (mapKasirTrx[trx.namaKasir] ?? 0) + 1;
-      for (final item in trx.items) {
-        mapProdukQty[item.namaProduk] =
-            (mapProdukQty[item.namaProduk] ?? 0) + item.qty;
-        mapProdukOmzet[item.namaProduk] =
-            (mapProdukOmzet[item.namaProduk] ?? 0) +
-                (item.hargaJual * item.qty);
-      }
-    }
-
-    final topSku = mapProdukQty.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-    final topKasir = mapKasirOmzet.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(14, 4, 14, 28),
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: ['Hari Ini', '7 Hari', '30 Hari', 'Semua'].map((p) {
-                    final aktif = _periodeLaporan == p;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: ChoiceChip(
-                        label: Text(p, style: const TextStyle(fontSize: 11.5)),
-                        selected: aktif,
-                        onSelected: (_) =>
-                            setState(() => _periodeLaporan = p),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-            ),
-            OutlinedButton.icon(
-              onPressed: () async {
-                final csv = buatCsvLaporan(trxList);
-                await Clipboard.setData(ClipboardData(text: csv));
-                _info('Laporan CSV (${trxList.length} transaksi) disalin.');
-              },
-              icon: const Icon(Icons.download_rounded, size: 16),
-              label: const Text('CSV', style: TextStyle(fontSize: 11.5)),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: MetricTile(
-                tema: t,
-                label: 'Omzet Penjualan',
-                value: formatRupiah(omzet),
-                sublabel:
-                    '${trxList.length} struk • ATV ${formatRupiah(avgBasket)}',
-                valueColor: t.primaryColor,
-                icon: Icons.payments_outlined,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: MetricTile(
-                tema: t,
-                label: 'Laba Kotor (Gross)',
-                value: formatRupiah(labaKotor),
-                sublabel:
-                    'Margin ${marginPersen.toStringAsFixed(1)}% • HPP ${formatRupiah(totalHpp)}',
-                valueColor: t.successColor,
-                icon: Icons.trending_up_rounded,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: MetricTile(
-                tema: t,
-                label: 'Biaya Operasional',
-                value: formatRupiah(totalBiaya),
-                sublabel: '${expList.length} pos pengeluaran',
-                valueColor: t.warningColor,
-                icon: Icons.receipt_long_outlined,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: MetricTile(
-                tema: t,
-                label: 'Laba Bersih (Net)',
-                value: formatRupiah(labaBersih),
-                sublabel: 'Gross Profit - Biaya',
-                valueColor:
-                    labaBersih >= 0 ? t.successColor : t.dangerColor,
-                icon: Icons.account_balance_wallet_outlined,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: MetricTile(
-                tema: t,
-                label: 'Valuasi Inventaris',
-                value: formatRupiah(nilaiAsetHpp),
-                sublabel: 'Potensi jual ${formatRupiah(nilaiAsetJual)}',
-                valueColor: t.accentColor,
-                icon: Icons.warehouse_outlined,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: MetricTile(
-                tema: t,
-                label: 'Piutang Kasbon',
-                value: formatRupiah(totalKasbon),
-                sublabel: '$stokMenipisCount SKU stok kritis',
-                valueColor:
-                    totalKasbon > 0 ? t.dangerColor : t.textSecondary,
-                icon: Icons.warning_amber_rounded,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        const SectionHeader(
-          title: 'Top Produk Terlaris',
-          subtitle: 'Peringkat pergerakan barang berdasarkan volume terjual',
-        ),
-        const SizedBox(height: 8),
-        if (topSku.isEmpty)
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: dekorasiKartu(t),
-            child: Text(
-              'Belum ada penjualan pada periode ini.',
-              style: TextStyle(fontSize: 12, color: t.textSecondary),
-            ),
-          )
-        else
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: dekorasiKartu(t),
-            child: Column(
-              children: List.generate(topSku.take(5).length, (i) {
-                final entry = topSku[i];
-                final omzSku = mapProdukOmzet[entry.key] ?? 0;
-                return Padding(
-                  padding: EdgeInsets.only(bottom: i == 4 ? 0 : 8),
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 13,
-                        backgroundColor: t.primaryColor.withAlpha(26),
-                        child: Text(
-                          '${i + 1}',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w900,
-                            color: t.primaryColor,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          entry.key,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 12.5,
-                          ),
-                        ),
-                      ),
-                      Text(
-                        '${entry.value} unit • ${formatRupiah(omzSku)}',
-                        style: gayaAngka(
-                          TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w800,
-                            color: t.primaryColor,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }),
-            ),
-          ),
-        if (topKasir.isNotEmpty) ...[
-          const SizedBox(height: 14),
-          const SectionHeader(
-            title: 'Kinerja Terminal Kasir',
-            subtitle: 'Kontribusi omzet per operator kasir',
-          ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: dekorasiKartu(t),
-            child: Column(
-              children: topKasir.map((e) {
-                final jmlStruk = mapKasirTrx[e.key] ?? 0;
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        '${e.key} ($jmlStruk struk)',
-                        style: const TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      Text(
-                        formatRupiah(e.value),
-                        style: gayaAngka(
-                          TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w900,
-                            color: t.successColor,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-        ],
-        const SizedBox(height: 14),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Expanded(
-              child: SectionHeader(
-                title: 'Buku Pengeluaran Operasional',
-                subtitle: 'Biaya non-HPP untuk kalkulasi laba bersih',
-              ),
-            ),
-            FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: t.primaryColor,
-                foregroundColor: Colors.white,
-              ),
-              onPressed: _dialogTambahPengeluaran,
-              icon: const Icon(Icons.add_rounded, size: 17),
-              label: const Text('Biaya', style: TextStyle(fontSize: 12)),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        if (expList.isEmpty)
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: dekorasiKartu(t),
-            child: Text(
-              'Belum ada catatan biaya operasional pada periode ini.',
-              style: TextStyle(fontSize: 12, color: t.textSecondary),
-            ),
-          )
-        else
-          ...expList.map(
-            (exp) => Container(
-              margin: const EdgeInsets.only(bottom: 7),
-              padding: const EdgeInsets.all(11),
-              decoration: dekorasiKartu(t),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          exp.judul,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13,
-                          ),
-                        ),
-                        Text(
-                          '${exp.kategori} • ${formatTanggalWaktu(exp.tanggal)}',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: t.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Text(
-                    '-${formatRupiah(exp.nominal)}',
-                    style: gayaAngka(
-                      TextStyle(
-                        fontWeight: FontWeight.w800,
-                        color: t.dangerColor,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => widget.onHapusPengeluaran(exp.id),
-                    icon: Icon(
-                      Icons.delete_outline,
-                      size: 18,
-                      color: t.dangerColor,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
       ],
     );
   }

@@ -50,7 +50,12 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
       }
       return true;
     }).toList();
-    return list.isNotEmpty ? list : widget.daftarStaff;
+    if (list.isNotEmpty) return list;
+    if (widget.mode == AppTargetMode.posOnly) {
+      final nonSis = widget.daftarStaff.where((s) => !s.isStoreSystem).toList();
+      if (nonSis.isNotEmpty) return nonSis;
+    }
+    return widget.daftarStaff;
   }
 
   String _formatNik(AkunStaff s) {
@@ -403,7 +408,7 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
   Widget build(BuildContext context) {
     final t = widget.tema;
     final staffAktif = _staffTersaring;
-    final isSis = widget.mode == AppTargetMode.sisOnly;
+    final isSis = widget.mode != AppTargetMode.posOnly && (widget.mode == AppTargetMode.sisOnly || _staffDipilih.isStoreSystem);
     final jamStr =
         '${_sekarang.hour.toString().padLeft(2, '0')}:${_sekarang.minute.toString().padLeft(2, '0')}:${_sekarang.second.toString().padLeft(2, '0')}';
 

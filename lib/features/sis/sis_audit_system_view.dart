@@ -1,5 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
+import 'sis_inventory_so_view.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/clerek_model.dart';
@@ -28,6 +32,7 @@ class SisAuditSystemView extends StatefulWidget {
   final List<AkunStaff> daftarStaff;
   final List<ShiftKasir> daftarShift;
   final List<TransaksiPos> daftarTransaksi;
+  final List<KksoDocument> daftarKkso;
   final Map<String, LaporanClerekShift> mapClerekZReport;
   final void Function(TransaksiPos trx) onLihatStruk;
   final void Function(TransaksiPos trx) onVoidTransaksi;
@@ -49,6 +54,7 @@ class SisAuditSystemView extends StatefulWidget {
     required this.daftarStaff,
     required this.daftarShift,
     required this.daftarTransaksi,
+    this.daftarKkso = const [],
     required this.mapClerekZReport,
     required this.onLihatStruk,
     required this.onVoidTransaksi,
@@ -282,6 +288,7 @@ class _SisAuditSystemViewState extends State<SisAuditSystemView>
                 (1, 'Clerek Shift'),
                 (2, 'SDM & PIN'),
                 (3, 'Sistem'),
+                (4, 'Stock Opname'),
               ])
                 Padding(
                   padding: const EdgeInsets.only(right: 6),
@@ -301,7 +308,292 @@ class _SisAuditSystemViewState extends State<SisAuditSystemView>
             duration: const Duration(milliseconds: 240),
             child: _subTab == 0
                 ? _buildStruk(t)
-                : (_subTab == 1 ? _buildShift(t) : (_subTab == 2 ? _buildSdm(t) : _buildSistem(t))),
+                : (_subTab == 1
+                    ? _buildShift(t)
+                    : (_subTab == 2
+                        ? _buildSdm(t)
+                        : (_subTab == 3 ? _buildSistem(t) : _buildStockOpnameReport(t)))),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _unduhBeritaAcaraKkso(KksoDocument doc) async {
+    final Uint8List bytes = (doc.pdfBase64 != null && doc.pdfBase64!.isNotEmpty)
+        ? base64Decode(doc.pdfBase64!)
+        : await generateKksoBeritaAcaraPdf(doc, widget.toko);
+    await Printing.sharePdf(
+      bytes: bytes,
+      filename: 'Berita_Acara_${doc.id}.pdf',
+    );
+  }
+
+  void _lihatDetailKksoPosted(AppThemeConfig t, KksoDocument doc) {
+    final catatanText = (doc.catatan ?? '').trim();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text(
+          'Berita Acara • ${doc.id}',
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF0E5A3E)),
+        ),
+        content: SizedBox(
+          width: 340,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${doc.jenis == KksoJenis.grand ? "GRAND OPNAME" : "PARTIAL OPNAME"} • ${doc.areaLabel}',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Petugas Hitung: ${doc.petugasHitung}\n'
+                  'Hitung Ulang: ${doc.petugasDoubleCount ?? "Tidak diperlukan"}\n'
+                  'Disetujui Pemilik: ${doc.disetujuiOleh ?? "-"} (PIN SIS)\n'
+                  'Alasan: ${doc.alasan}${catatanText.isNotEmpty ? " • $catatanText" : ""}',
+                  style: const TextStyle(fontSize: 11.5, color: Colors.black87, height: 1.35),
+                ),
+                const Divider(height: 16),
+                for (final it in doc.itemsSelisih)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${it.namaProduk} (${it.kodeSku})\nSys ${it.stokSistem} -> Fis ${it.fisikFinal}',
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                        ),
+                        Text(
+                          '${it.selisih > 0 ? "+${it.selisih}" : "${it.selisih}"} (${formatRupiah(it.nilaiSelisihHpp)})',
+                          style: gayaAngka(
+                            TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: it.selisih < 0 ? const Color(0xFFB91C1C) : const Color(0xFF0E5A3E),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (doc.itemsSelisih.isEmpty)
+                  const Text('Semua item cocok (0 selisih).', style: TextStyle(fontSize: 11.5, color: Colors.black54)),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Tutup')),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF0E5A3E),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _unduhBeritaAcaraKkso(doc);
+            },
+            icon: const Icon(Icons.picture_as_pdf_rounded, size: 17),
+            label: const Text('Unduh PDF', style: TextStyle(fontWeight: FontWeight.w800)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStockOpnameReport(AppThemeConfig t) {
+    const soGreen = Color(0xFF0E5A3E);
+    const soGreenSoft = Color(0xFFE8F3EE);
+    final postedList = widget.daftarKkso
+        .where((d) => d.status == KksoStatus.posted)
+        .toList()
+      ..sort((a, b) => (b.tanggalPosted ?? b.tanggalDibuat).compareTo(a.tanggalPosted ?? a.tanggalDibuat));
+
+    final totalSelisihHpp = postedList.fold<int>(0, (s, d) => s + d.totalSelisihHpp);
+
+    if (postedList.isEmpty) {
+      return Center(
+        key: const ValueKey('aud_so_empty'),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: const BoxDecoration(color: soGreenSoft, shape: BoxShape.circle),
+                child: const Icon(Icons.assignment_turned_in_rounded, color: soGreen, size: 32),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Belum Ada Berita Acara Stock Opname',
+                style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w900, color: soGreen),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Dokumen KKSO yang sudah disetujui & diposting oleh Owner/SIS akan otomatis muncul di sini lengkap dengan PDF Berita Acara.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 11.5, color: Colors.black54),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      key: const ValueKey('aud_so_list'),
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+          child: Container(
+            padding: const EdgeInsets.all(11),
+            decoration: BoxDecoration(
+              color: soGreenSoft,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: soGreen.withAlpha(90)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'ARSIP BERITA ACARA KKSO (POSTED)',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: soGreen),
+                    ),
+                    Text(
+                      '${postedList.length} Dokumen Terkunci',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    const Text('Akumulasi Selisih HPP', style: TextStyle(fontSize: 10, color: Colors.black54)),
+                    Text(
+                      formatRupiah(totalSelisihHpp),
+                      style: gayaAngka(
+                        TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w900,
+                          color: totalSelisihHpp < 0 ? const Color(0xFFB91C1C) : soGreen,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        Expanded(
+          child: ListView.separated(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+            itemCount: postedList.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemBuilder: (ctx, i) {
+              final doc = postedList[i];
+              final dt = doc.tanggalPosted ?? doc.tanggalDibuat;
+              final tglStr =
+                  '${dt.day.toString().padLeft(2, "0")}/${dt.month.toString().padLeft(2, "0")}/${dt.year} ${dt.hour.toString().padLeft(2, "0")}:${dt.minute.toString().padLeft(2, "0")}';
+
+              return Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: soGreen.withAlpha(90)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: soGreen,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Text(
+                            'POSTED',
+                            style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            doc.id,
+                            style: gayaAngka(const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w900, color: soGreen)),
+                          ),
+                        ),
+                        Text(tglStr, style: const TextStyle(fontSize: 10.5, color: Colors.black54)),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${doc.jenis == KksoJenis.grand ? "GRAND OPNAME" : "PARTIAL OPNAME"} • ${doc.areaLabel}',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Petugas: ${doc.petugasHitung} • Disetujui: ${doc.disetujuiOleh ?? "Owner"} • Alasan: ${doc.alasan}',
+                      style: const TextStyle(fontSize: 11, color: Colors.black54),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Selisih: ${doc.totalSelisihItem > 0 ? "+${doc.totalSelisihItem}" : "${doc.totalSelisihItem}"} item (${formatRupiah(doc.totalSelisihHpp)})',
+                            style: gayaAngka(
+                              TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                                color: doc.totalSelisihHpp < 0 ? const Color(0xFFB91C1C) : soGreen,
+                              ),
+                            ),
+                          ),
+                        ),
+                        OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: soGreen,
+                            side: const BorderSide(color: soGreen),
+                            visualDensity: VisualDensity.compact,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                          ),
+                          onPressed: () => _lihatDetailKksoPosted(t, doc),
+                          child: const Text('Detail', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800)),
+                        ),
+                        const SizedBox(width: 6),
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: soGreen,
+                            foregroundColor: Colors.white,
+                            visualDensity: VisualDensity.compact,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                          ),
+                          onPressed: () => _unduhBeritaAcaraKkso(doc),
+                          icon: const Icon(Icons.picture_as_pdf_rounded, size: 15),
+                          label: const Text('PDF', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800)),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
         ),
       ],

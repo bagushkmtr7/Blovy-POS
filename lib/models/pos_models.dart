@@ -757,3 +757,270 @@ class PengaturanToko {
     );
   }
 }
+
+enum KksoJenis { grand, partial }
+
+enum KksoStatus { hitung, review, posted }
+
+class KksoItem {
+  final String produkId;
+  final String namaProduk;
+  final String kodeSku;
+  final String barcode;
+  final String kategori;
+  final String satuan;
+  final String lokasiRak;
+  final int stokSistem;
+  final int? stokFisik;
+  final int? stokDoubleCount;
+  final int hargaModal;
+  final int hargaJual;
+  final bool sudahDihitung;
+
+  const KksoItem({
+    required this.produkId,
+    required this.namaProduk,
+    required this.kodeSku,
+    this.barcode = '',
+    this.kategori = '',
+    this.satuan = 'pcs',
+    this.lokasiRak = 'Rak Display 01',
+    required this.stokSistem,
+    this.stokFisik,
+    this.stokDoubleCount,
+    required this.hargaModal,
+    required this.hargaJual,
+    this.sudahDihitung = false,
+  });
+
+  int get fisikFinal => stokDoubleCount ?? stokFisik ?? 0;
+
+  int get selisih => sudahDihitung ? (fisikFinal - stokSistem) : 0;
+
+  int get nilaiSelisihHpp => selisih * hargaModal;
+
+  int get nilaiSelisihJual => selisih * hargaJual;
+
+  bool get adaSelisih => sudahDihitung && selisih != 0;
+
+  KksoItem copyWith({
+    String? produkId,
+    String? namaProduk,
+    String? kodeSku,
+    String? barcode,
+    String? kategori,
+    String? satuan,
+    String? lokasiRak,
+    int? stokSistem,
+    int? stokFisik,
+    bool clearStokFisik = false,
+    int? stokDoubleCount,
+    bool clearStokDoubleCount = false,
+    int? hargaModal,
+    int? hargaJual,
+    bool? sudahDihitung,
+  }) {
+    return KksoItem(
+      produkId: produkId ?? this.produkId,
+      namaProduk: namaProduk ?? this.namaProduk,
+      kodeSku: kodeSku ?? this.kodeSku,
+      barcode: barcode ?? this.barcode,
+      kategori: kategori ?? this.kategori,
+      satuan: satuan ?? this.satuan,
+      lokasiRak: lokasiRak ?? this.lokasiRak,
+      stokSistem: stokSistem ?? this.stokSistem,
+      stokFisik: clearStokFisik ? null : (stokFisik ?? this.stokFisik),
+      stokDoubleCount:
+          clearStokDoubleCount ? null : (stokDoubleCount ?? this.stokDoubleCount),
+      hargaModal: hargaModal ?? this.hargaModal,
+      hargaJual: hargaJual ?? this.hargaJual,
+      sudahDihitung: sudahDihitung ?? this.sudahDihitung,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+        'produkId': produkId,
+        'namaProduk': namaProduk,
+        'kodeSku': kodeSku,
+        'barcode': barcode,
+        'kategori': kategori,
+        'satuan': satuan,
+        'lokasiRak': lokasiRak,
+        'stokSistem': stokSistem,
+        'stokFisik': stokFisik,
+        'stokDoubleCount': stokDoubleCount,
+        'hargaModal': hargaModal,
+        'hargaJual': hargaJual,
+        'sudahDihitung': sudahDihitung,
+      };
+
+  factory KksoItem.fromMap(Map<String, dynamic> m) => KksoItem(
+        produkId: (m['produkId'] as String?) ?? '',
+        namaProduk: (m['namaProduk'] as String?) ?? '',
+        kodeSku: (m['kodeSku'] as String?) ?? '',
+        barcode: (m['barcode'] as String?) ?? '',
+        kategori: (m['kategori'] as String?) ?? '',
+        satuan: (m['satuan'] as String?) ?? 'pcs',
+        lokasiRak: (m['lokasiRak'] as String?) ?? 'Rak Display 01',
+        stokSistem: (m['stokSistem'] as int?) ?? 0,
+        stokFisik: m['stokFisik'] as int?,
+        stokDoubleCount: m['stokDoubleCount'] as int?,
+        hargaModal: (m['hargaModal'] as int?) ?? 0,
+        hargaJual: (m['hargaJual'] as int?) ?? 0,
+        sudahDihitung: (m['sudahDihitung'] as bool?) ?? false,
+      );
+}
+
+class KksoDocument {
+  final String id;
+  final KksoJenis jenis;
+  final String subJenis;
+  final String areaLabel;
+  final KksoStatus status;
+  final String petugasHitung;
+  final String? petugasDoubleCount;
+  final String? disetujuiOleh;
+  final String? alasan;
+  final String? catatan;
+  final bool pinSisTerverifikasi;
+  final bool freezePenjualan;
+  final DateTime tanggalDibuat;
+  final DateTime? tanggalSelesaiHitung;
+  final DateTime? tanggalPosted;
+  final String? pdfBase64;
+  final List<KksoItem> items;
+
+  const KksoDocument({
+    required this.id,
+    required this.jenis,
+    required this.subJenis,
+    required this.areaLabel,
+    required this.status,
+    required this.petugasHitung,
+    this.petugasDoubleCount,
+    this.disetujuiOleh,
+    this.alasan,
+    this.catatan,
+    this.pinSisTerverifikasi = false,
+    this.freezePenjualan = false,
+    required this.tanggalDibuat,
+    this.tanggalSelesaiHitung,
+    this.tanggalPosted,
+    this.pdfBase64,
+    required this.items,
+  });
+
+  bool get isLocked => status == KksoStatus.posted;
+
+  int get totalSku => items.length;
+
+  int get totalTerhitung => items.where((e) => e.sudahDihitung).length;
+
+  List<KksoItem> get itemsSelisih => items.where((e) => e.adaSelisih).toList();
+
+  int get totalSelisihItem =>
+      itemsSelisih.fold<int>(0, (sum, e) => sum + e.selisih);
+
+  int get totalSelisihHpp =>
+      itemsSelisih.fold<int>(0, (sum, e) => sum + e.nilaiSelisihHpp);
+
+  int get totalSelisihJual =>
+      itemsSelisih.fold<int>(0, (sum, e) => sum + e.nilaiSelisihJual);
+
+  int get totalKerugianHpp => itemsSelisih
+      .where((e) => e.selisih < 0)
+      .fold<int>(0, (sum, e) => sum + e.nilaiSelisihHpp.abs());
+
+  bool get wajibDoubleCount =>
+      jenis == KksoJenis.grand || totalKerugianHpp > 50000;
+
+  KksoDocument copyWith({
+    String? id,
+    KksoJenis? jenis,
+    String? subJenis,
+    String? areaLabel,
+    KksoStatus? status,
+    String? petugasHitung,
+    String? petugasDoubleCount,
+    String? disetujuiOleh,
+    String? alasan,
+    String? catatan,
+    bool? pinSisTerverifikasi,
+    bool? freezePenjualan,
+    DateTime? tanggalDibuat,
+    DateTime? tanggalSelesaiHitung,
+    DateTime? tanggalPosted,
+    String? pdfBase64,
+    List<KksoItem>? items,
+  }) {
+    return KksoDocument(
+      id: id ?? this.id,
+      jenis: jenis ?? this.jenis,
+      subJenis: subJenis ?? this.subJenis,
+      areaLabel: areaLabel ?? this.areaLabel,
+      status: status ?? this.status,
+      petugasHitung: petugasHitung ?? this.petugasHitung,
+      petugasDoubleCount: petugasDoubleCount ?? this.petugasDoubleCount,
+      disetujuiOleh: disetujuiOleh ?? this.disetujuiOleh,
+      alasan: alasan ?? this.alasan,
+      catatan: catatan ?? this.catatan,
+      pinSisTerverifikasi: pinSisTerverifikasi ?? this.pinSisTerverifikasi,
+      freezePenjualan: freezePenjualan ?? this.freezePenjualan,
+      tanggalDibuat: tanggalDibuat ?? this.tanggalDibuat,
+      tanggalSelesaiHitung: tanggalSelesaiHitung ?? this.tanggalSelesaiHitung,
+      tanggalPosted: tanggalPosted ?? this.tanggalPosted,
+      pdfBase64: pdfBase64 ?? this.pdfBase64,
+      items: items ?? this.items,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'jenis': jenis.name,
+        'subJenis': subJenis,
+        'areaLabel': areaLabel,
+        'status': status.name,
+        'petugasHitung': petugasHitung,
+        'petugasDoubleCount': petugasDoubleCount,
+        'disetujuiOleh': disetujuiOleh,
+        'alasan': alasan,
+        'catatan': catatan,
+        'pinSisTerverifikasi': pinSisTerverifikasi,
+        'freezePenjualan': freezePenjualan,
+        'tanggalDibuat': tanggalDibuat.toIso8601String(),
+        'tanggalSelesaiHitung': tanggalSelesaiHitung?.toIso8601String(),
+        'tanggalPosted': tanggalPosted?.toIso8601String(),
+        'pdfBase64': pdfBase64,
+        'items': items.map((e) => e.toMap()).toList(),
+      };
+
+  factory KksoDocument.fromMap(Map<String, dynamic> m) => KksoDocument(
+        id: (m['id'] as String?) ?? '',
+        jenis: (m['jenis'] as String?) == 'grand'
+            ? KksoJenis.grand
+            : KksoJenis.partial,
+        subJenis: (m['subJenis'] as String?) ?? 'Per Rak',
+        areaLabel: (m['areaLabel'] as String?) ?? 'Rak Display 01',
+        status: switch (m['status'] as String?) {
+          'review' => KksoStatus.review,
+          'posted' => KksoStatus.posted,
+          _ => KksoStatus.hitung,
+        },
+        petugasHitung: (m['petugasHitung'] as String?) ?? 'Petugas Toko',
+        petugasDoubleCount: m['petugasDoubleCount'] as String?,
+        disetujuiOleh: m['disetujuiOleh'] as String?,
+        alasan: m['alasan'] as String?,
+        catatan: m['catatan'] as String?,
+        pinSisTerverifikasi: (m['pinSisTerverifikasi'] as bool?) ?? false,
+        freezePenjualan: (m['freezePenjualan'] as bool?) ?? false,
+        tanggalDibuat: DateTime.tryParse((m['tanggalDibuat'] as String?) ?? '') ??
+            DateTime.now(),
+        tanggalSelesaiHitung:
+            DateTime.tryParse((m['tanggalSelesaiHitung'] as String?) ?? ''),
+        tanggalPosted: DateTime.tryParse((m['tanggalPosted'] as String?) ?? ''),
+        pdfBase64: m['pdfBase64'] as String?,
+        items: ((m['items'] as List?) ?? [])
+            .map((e) => KksoItem.fromMap(Map<String, dynamic>.from(e as Map)))
+            .toList(),
+      );
+}
