@@ -1,4 +1,4 @@
-name: Build Blovy POS APK
+name: Build Blovy POS & SIS APKs
 
 on:
   push:
@@ -21,10 +21,21 @@ jobs:
           cache: true
       - name: Get dependencies
         run: flutter pub get
-      - name: Build APK Release
-        run: flutter build apk --release
-      - name: Upload APK Artifact
+      - name: Build BLOVY POS APK
+        run: flutter build apk --release -t lib/main_pos.dart
+      - name: Save BLOVY POS APK
+        run: cp build/app/outputs/flutter-apk/app-release.apk blovy-pos.apk
+      - name: Build BLOVY SIS APK
+        run: flutter build apk --release -t lib/main_sis.dart
+      - name: Save BLOVY SIS APK
+        run: cp build/app/outputs/flutter-apk/app-release.apk blovy-sis.apk
+      - name: Upload BLOVY POS APK
         uses: actions/upload-artifact@v4
         with:
-          name: blovy-pos-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: blovy-pos-apk
+          path: blovy-pos.apk
+      - name: Upload BLOVY SIS APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: blovy-sis-apk
+          path: blovy-sis.apk

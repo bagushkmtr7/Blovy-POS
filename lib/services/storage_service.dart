@@ -19,15 +19,21 @@ class StorageService {
 
   static List<AkunStaff> staffDefault() => const [
         AkunStaff(
-          id: 'stf_sis',
-          nama: 'Store Information System',
+          id: '2600001',
+          nama: 'Bagus Pratama',
           pin: '1234',
           role: RoleStaff.storeSystem,
         ),
         AkunStaff(
-          id: 'stf_kasir1',
-          nama: 'Kasir Shift Pagi',
+          id: '2601001',
+          nama: 'Raka Wijaya',
           pin: '1111',
+          role: RoleStaff.kasir,
+        ),
+        AkunStaff(
+          id: '2601002',
+          nama: 'Nadia Putri',
+          pin: '2222',
           role: RoleStaff.kasir,
         ),
       ];

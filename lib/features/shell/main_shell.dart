@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import '../../core/app_mode.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/pos_models.dart';
@@ -13,11 +14,13 @@ import '../kasir/kasir_tab.dart';
 class PosMainShell extends StatefulWidget {
   final AppThemeConfig tema;
   final ValueChanged<String> onGantiTema;
+  final AppTargetMode mode;
 
   const PosMainShell({
     super.key,
     required this.tema,
     required this.onGantiTema,
+    this.mode = AppTargetMode.all,
   });
 
   @override
@@ -700,6 +703,7 @@ class _PosMainShellState extends State<PosMainShell> {
 
     if (_currentStaff == null) {
       return LoginShiftScreen(
+        mode: widget.mode,
         tema: cariTemaById(null),
         toko: _toko,
         daftarStaff: _daftarStaff,

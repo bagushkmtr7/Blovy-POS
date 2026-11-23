@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../core/app_mode.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/pos_models.dart';
@@ -8,6 +9,7 @@ import '../../widgets/pos_components.dart';
 import '../../widgets/server_sync_badge.dart';
 
 class LoginShiftScreen extends StatefulWidget {
+  final AppTargetMode mode;
   final AppThemeConfig tema;
   final PengaturanToko toko;
   final List<AkunStaff> daftarStaff;
@@ -16,6 +18,7 @@ class LoginShiftScreen extends StatefulWidget {
 
   const LoginShiftScreen({
     super.key,
+    this.mode = AppTargetMode.all,
     required this.tema,
     required this.toko,
     required this.daftarStaff,
@@ -30,17 +33,37 @@ class LoginShiftScreen extends StatefulWidget {
 class _LoginShiftScreenState extends State<LoginShiftScreen> {
   late AkunStaff _staffDipilih;
   final FocusNode _keyboardFocus = FocusNode();
+  final TextEditingController _nikCtrl = TextEditingController();
   String _pin = '';
   String? _pesanError;
   late DateTime _sekarang;
   Timer? _clockTimer;
 
+  List<AkunStaff> get _staffTersaring {
+    final list = widget.daftarStaff.where((s) {
+      if (!s.aktif) return false;
+      if (widget.mode == AppTargetMode.posOnly) {
+        return s.role == RoleStaff.kasir;
+      }
+      if (widget.mode == AppTargetMode.sisOnly) {
+        return s.role == RoleStaff.storeSystem;
+      }
+      return true;
+    }).toList();
+    return list.isNotEmpty ? list : widget.daftarStaff;
+  }
+
+  String _formatNik(AkunStaff s) {
+    final clean = s.id.replaceAll(RegExp(r'[^0-9]'), '');
+    if (clean.length >= 5) return clean;
+    return s.id.toUpperCase();
+  }
+
   @override
   void initState() {
     super.initState();
-    final aktifList = widget.daftarStaff.where((s) => s.aktif).toList();
-    _staffDipilih =
-        aktifList.isNotEmpty ? aktifList.first : widget.daftarStaff.first;
+    final tersedia = _staffTersaring;
+    _staffDipilih = tersedia.first;
     _sekarang = DateTime.now();
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _sekarang = DateTime.now());
@@ -53,10 +76,35 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant LoginShiftScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final tersedia = _staffTersaring;
+    if (!tersedia.any((s) => s.id == _staffDipilih.id) && tersedia.isNotEmpty) {
+      _staffDipilih = tersedia.first;
+    }
+  }
+
+  @override
   void dispose() {
     _clockTimer?.cancel();
     _keyboardFocus.dispose();
+    _nikCtrl.dispose();
     super.dispose();
+  }
+
+  void _cariByNik(String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return;
+    final cocok = _staffTersaring.where(
+      (s) => s.id.toLowerCase().contains(q) || s.nama.toLowerCase().contains(q),
+    );
+    if (cocok.isNotEmpty) {
+      setState(() {
+        _staffDipilih = cocok.first;
+        _pin = '';
+        _pesanError = null;
+      });
+    }
   }
 
   void _tekanDigit(String d) {
@@ -85,7 +133,7 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
       HapticFeedback.heavyImpact();
       setState(() {
         _pin = '';
-        _pesanError = 'PIN tidak sesuai untuk akun ${_staffDipilih.nama}';
+        _pesanError = 'Otorisasi ditolak: PIN salah untuk ${_staffDipilih.nama}';
       });
       return;
     }
@@ -101,6 +149,13 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
     _dialogBukaShift(_staffDipilih);
   }
 
+  String _rekomendasiShiftOtomatis() {
+    final jam = DateTime.now().hour;
+    if (jam >= 6 && jam < 14) return 'Shift 1 (Pagi)';
+    if (jam >= 14 && jam < 22) return 'Shift 2 (Siang)';
+    return 'Shift 3 (Malam)';
+  }
+
   void _dialogBukaShift(AkunStaff staff) {
     if (staff.isStoreSystem ||
         staff.role.name.toLowerCase().contains('owner') ||
@@ -112,6 +167,8 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
 
     final t = widget.tema;
     final modalCtrl = TextEditingController(text: '200000');
+    String kassaTerpilih = 'KASSA-01';
+    String shiftTerpilih = _rekomendasiShiftOtomatis();
 
     showDialog(
       context: context,
@@ -144,9 +201,18 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
                 ),
                 const SizedBox(width: 10),
                 const Expanded(
-                  child: Text(
-                    'Buka Shift & Laci Kas',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Registrasi Shift & Kassa',
+                        style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w900),
+                      ),
+                      Text(
+                        'Buka laci kasir sebelum transaksi ritel',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -157,31 +223,98 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(10),
+                    padding: const EdgeInsets.all(11),
                     decoration: BoxDecoration(
                       color: t.inputColor,
                       borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: t.borderColor),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Row(
                       children: [
-                        Text(
-                          'Kasir Bertugas: ${staff.nama}',
-                          style: const TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w800,
+                        CircleAvatar(
+                          radius: 18,
+                          backgroundColor: t.primaryColor.withAlpha(28),
+                          child: Text(
+                            staff.nama.isNotEmpty ? staff.nama[0].toUpperCase() : 'K',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              color: t.primaryColor,
+                            ),
                           ),
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Hitung uang tunai modal kembalian di laci sebelum transaksi dimulai.',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: t.textSecondary,
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                staff.nama,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              Text(
+                                'NIK: ${_formatNik(staff)} • Kasir Terminal',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: t.textSecondary,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'PILIH TERMINAL KASSA',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                      color: t.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    children: [
+                      for (final kassa in ['KASSA-01', 'KASSA-02', 'KASSA-03'])
+                        ChoiceChip(
+                          label: Text(
+                            kassa,
+                            style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800),
+                          ),
+                          selected: kassaTerpilih == kassa,
+                          onSelected: (_) => setDlg(() => kassaTerpilih = kassa),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'JADWAL SHIFT KERJA',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                      color: t.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final sh in ['Shift 1 (Pagi)', 'Shift 2 (Siang)', 'Shift 3 (Malam)'])
+                        ChoiceChip(
+                          label: Text(
+                            sh,
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
+                          ),
+                          selected: shiftTerpilih == sh,
+                          onSelected: (_) => setDlg(() => shiftTerpilih = sh),
+                        ),
+                    ],
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -193,7 +326,7 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
                       const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
                     ),
                     decoration: InputDecoration(
-                      labelText: 'Modal Awal Laci Kas',
+                      labelText: 'Modal Awal Laci Kas (Petty Cash)',
                       prefixText: 'Rp ',
                       helperText: 'Terbaca: ${formatRupiah(nominalPreview)}',
                       filled: true,
@@ -203,12 +336,12 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
                   Wrap(
                     spacing: 6,
                     runSpacing: 6,
                     children: [
-                      for (final preset in [0, 100000, 200000, 500000])
+                      for (final preset in [0, 100000, 200000, 300000, 500000])
                         ActionChip(
                           label: Text(
                             formatRupiah(preset),
@@ -246,12 +379,16 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
                         modalCtrl.text.replaceAll(RegExp(r'[^0-9]'), ''),
                       ) ??
                       0;
+                  final labelShiftSingkat = shiftTerpilih.split(' ').take(2).join(' ');
+                  final staffDenganKassa = staff.copyWith(
+                    nama: '${staff.nama} ($kassaTerpilih • $labelShiftSingkat)',
+                  );
                   Navigator.pop(ctx);
-                  widget.onMasukTerminal(staff, modal);
+                  widget.onMasukTerminal(staffDenganKassa, modal);
                 },
                 icon: const Icon(Icons.lock_open_rounded, size: 17),
                 label: const Text(
-                  'Buka Shift Sekarang',
+                  'Buka Laci & Mulai',
                   style: TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
@@ -265,7 +402,8 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
   @override
   Widget build(BuildContext context) {
     final t = widget.tema;
-    final staffAktif = widget.daftarStaff.where((s) => s.aktif).toList();
+    final staffAktif = _staffTersaring;
+    final isSis = widget.mode == AppTargetMode.sisOnly;
     final jamStr =
         '${_sekarang.hour.toString().padLeft(2, '0')}:${_sekarang.minute.toString().padLeft(2, '0')}:${_sekarang.second.toString().padLeft(2, '0')}';
 
@@ -288,13 +426,13 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
             child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 420),
+                constraints: const BoxConstraints(maxWidth: 430),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     ServerSyncBadge(tema: t),
                     const SizedBox(height: 10),
-                    // Header Terminal POS Komersial + Jam Real-Time
+                    // Header Terminal Retail Komersial
                     Container(
                       padding: const EdgeInsets.all(14),
                       decoration: dekorasiKartu(t),
@@ -307,8 +445,10 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
                               color: t.primaryColor,
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: const Icon(
-                              Icons.point_of_sale_rounded,
+                            child: Icon(
+                              isSis
+                                  ? Icons.admin_panel_settings_rounded
+                                  : Icons.point_of_sale_rounded,
                               color: Colors.white,
                               size: 25,
                             ),
@@ -318,20 +458,47 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  widget.toko.namaToko,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.w900,
-                                  ),
+                                Row(
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        widget.toko.namaToko,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 16.5,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: t.primaryColor.withAlpha(22),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        isSis ? 'SIS' : 'POS',
+                                        style: TextStyle(
+                                          fontSize: 9.5,
+                                          fontWeight: FontWeight.w900,
+                                          color: t.primaryColor,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
                                   widget.toko.alamatToko.isNotEmpty
                                       ? widget.toko.alamatToko
-                                      : 'Retail Point of Sale Terminal',
+                                      : (isSis
+                                          ? 'Store Information System • Back-Office'
+                                          : 'Commercial Retail Point of Sale'),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
@@ -369,7 +536,7 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
                     ),
                     const SizedBox(height: 10),
 
-                    // Indikator Status Shift & Laci Kasir
+                    // Banner Status Shift & Kassa
                     if (widget.shiftAktif != null)
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -394,7 +561,7 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Shift Berjalan: ${widget.shiftAktif!.namaStaff}',
+                                    'Shift Aktif: ${widget.shiftAktif!.namaStaff}',
                                     style: TextStyle(
                                       fontSize: 11.5,
                                       fontWeight: FontWeight.w800,
@@ -428,14 +595,16 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
                         child: Row(
                           children: [
                             Icon(
-                              Icons.lock_outline_rounded,
+                              Icons.point_of_sale_outlined,
                               size: 17,
                               color: t.warningColor,
                             ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'Laci Kasir Tertutup • Login Kasir akan membuka shift baru',
+                                isSis
+                                    ? 'Mode Back-Office SIS • Login dengan NIK & PIN Supervisor'
+                                    : 'Terminal Siap • Pilih NIK Karyawan & masukkan PIN untuk buka shift',
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w700,
@@ -448,23 +617,50 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
                       ),
                     const SizedBox(height: 12),
 
-                    // Label Pilih Operator
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 6, left: 2),
-                      child: Text(
-                        'PILIH AKUN OPERATOR (${staffAktif.length} AKTIF)',
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.5,
-                          color: t.textSecondary,
+                    // Pencarian Cepat NIK / Nama Karyawan
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            isSis
+                                ? 'SUPERVISOR / ADMIN (${staffAktif.length})'
+                                : 'PERSONEL KASIR (${staffAktif.length} TERDAFTAR)',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.5,
+                              color: t.textSecondary,
+                            ),
+                          ),
                         ),
-                      ),
+                        SizedBox(
+                          width: 155,
+                          height: 30,
+                          child: TextField(
+                            controller: _nikCtrl,
+                            onChanged: _cariByNik,
+                            style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700),
+                            decoration: InputDecoration(
+                              hintText: 'Cari NIK / Nama...',
+                              hintStyle: TextStyle(fontSize: 11, color: t.textSecondary),
+                              prefixIcon: const Icon(Icons.badge_outlined, size: 15),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                              filled: true,
+                              fillColor: t.surfaceColor,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(color: t.borderColor),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
+                    const SizedBox(height: 8),
 
-                    // Kartu Pemilihan Operator (Bebas Overflow)
+                    // Kartu Identitas Karyawan (NIK + Nama + Jabatan)
                     SizedBox(
-                      height: 88,
+                      height: 92,
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
                         itemCount: staffAktif.length,
@@ -484,7 +680,7 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
                             }),
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 160),
-                              width: 178,
+                              width: 186,
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 11,
                                 vertical: 9,
@@ -508,9 +704,7 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
                                         child: Align(
                                           alignment: Alignment.centerLeft,
                                           child: StatusBadge(
-                                            label: st.isStoreSystem
-                                                ? 'SIS BACK-OFFICE'
-                                                : 'KASIR POS',
+                                            label: 'NIK ${_formatNik(st)}',
                                             color: roleColor,
                                           ),
                                         ),
@@ -538,8 +732,8 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
                                       ),
                                       Text(
                                         st.isStoreSystem
-                                            ? 'Akses Penuh & Audit'
-                                            : 'Terminal Penjualan',
+                                            ? 'Store Manager / SIS'
+                                            : 'Cashier Operations',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
@@ -558,24 +752,22 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
                     ),
                     const SizedBox(height: 14),
 
-                    // Panel Input PIN & Numpad Terminal
+                    // Panel Input PIN Keamanan
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: dekorasiKartu(t),
                       child: Column(
                         children: [
                           Text(
-                            'Otorisasi PIN • ${_staffDipilih.nama}',
+                            _staffDipilih.nama,
                             style: const TextStyle(
                               fontWeight: FontWeight.w900,
-                              fontSize: 14.5,
+                              fontSize: 15,
                             ),
                           ),
                           const SizedBox(height: 3),
                           Text(
-                            _staffDipilih.isStoreSystem
-                                ? 'Masuk ke Store Information System (Default: 1234)'
-                                : 'Masuk ke Terminal Kasir POS (Default: 1111)',
+                            'NIK ${_formatNik(_staffDipilih)} • Masukkan 4 Digit PIN Keamanan',
                             style: TextStyle(
                               fontSize: 11,
                               color: t.textSecondary,
