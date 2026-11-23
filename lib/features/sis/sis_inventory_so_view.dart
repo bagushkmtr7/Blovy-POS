@@ -364,6 +364,7 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
   final TextEditingController _pinSisCtrl = TextEditingController();
   bool _pinErr = false;
   bool _busyAdjust = false;
+  KksoDocument? _step6Doc;
 
   String _genNoKkso([DateTime? ref]) {
     final n = ref ?? DateTime.now();
@@ -700,7 +701,682 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
     if (_kksoStep == 3) return _buildStep3(doc);
     if (_kksoStep == 4) return _buildStep4(doc);
     if (_kksoStep == 5) return _buildStep5(doc);
+    if (_kksoStep == 6) return _buildStep6(doc);
     return _buildStep0(jenisAwal: doc.jenis);
+  }
+
+  String _namaBulanStep6(int m) {
+    const bln = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+    return bln[(m - 1).clamp(0, 11)];
+  }
+
+  Future<void> _exportBeritaAcaraStep6(KksoDocument doc, {bool shareMode = true}) async {
+    final diffItems = doc.items.where((it) {
+      final f = it.stokFisik;
+      return f != null && (f - it.stokSistem).abs() > 0.0001;
+    }).toList();
+
+    int minusProduk = 0;
+    int minusPcs = 0;
+    int minusHpp = 0;
+    int plusProduk = 0;
+    int plusPcs = 0;
+    int plusHpp = 0;
+
+    for (final it in diffItems) {
+      final f = it.stokFisik!;
+      final deltaNum = f - it.stokSistem;
+      final deltaInt = deltaNum.round();
+      final hppInt = (deltaNum * it.hargaModal).round();
+      if (deltaInt < 0) {
+        minusProduk += 1;
+        minusPcs += deltaInt.abs();
+        minusHpp += hppInt.abs();
+      } else if (deltaInt > 0) {
+        plusProduk += 1;
+        plusPcs += deltaInt;
+        plusHpp += hppInt.abs();
+      }
+    }
+
+    final netSelisihHpp = plusHpp - minusHpp;
+    final postedBy = (doc.disetujuiOleh?.trim().isNotEmpty ?? false)
+        ? doc.disetujuiOleh!.trim()
+        : (widget.currentStaff?.nama.trim().isNotEmpty ?? false)
+            ? widget.currentStaff!.nama.trim()
+            : 'Admin Operasional';
+    final tglPosted = doc.tanggalPosted ?? DateTime.now();
+    final tglLabel = '${tglPosted.day} ${_namaBulanStep6(tglPosted.month)} ${tglPosted.year}';
+    final jamLabel = '${tglPosted.hour.toString().padLeft(2, "0")}:${tglPosted.minute.toString().padLeft(2, "0")} WIB';
+
+    final pdf = pw.Document();
+    pdf.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(24),
+        build: (ctx) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text('Final Stock Opname Result Report', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+                pw.Text('FIXED POSTED', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColors.green800)),
+              ],
+            ),
+            pw.SizedBox(height: 4),
+            pw.Text('${widget.toko?.namaToko ?? "Nusantara Retail POS"} • Dokumen ${doc.id}', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+            pw.Divider(height: 18),
+            pw.Row(
+              children: [
+                pw.Expanded(
+                  child: pw.Container(
+                    padding: const pw.EdgeInsets.all(8),
+                    decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.red300), borderRadius: pw.BorderRadius.circular(6)),
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text('Minus', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: PdfColors.red800)),
+                        pw.Text('$minusProduk Produk • -$minusPcs pcs', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                        pw.Text('${_fmtRp(minusHpp)} HPP', style: const pw.TextStyle(fontSize: 9)),
+                      ],
+                    ),
+                  ),
+                ),
+                pw.SizedBox(width: 8),
+                pw.Expanded(
+                  child: pw.Container(
+                    padding: const pw.EdgeInsets.all(8),
+                    decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.green300), borderRadius: pw.BorderRadius.circular(6)),
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text('Plus', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: PdfColors.green800)),
+                        pw.Text('$plusProduk Produk • +$plusPcs pcs', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                        pw.Text('${_fmtRp(plusHpp)} HPP', style: const pw.TextStyle(fontSize: 9)),
+                      ],
+                    ),
+                  ),
+                ),
+                pw.SizedBox(width: 8),
+                pw.Expanded(
+                  child: pw.Container(
+                    padding: const pw.EdgeInsets.all(8),
+                    decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.amber600), borderRadius: pw.BorderRadius.circular(6)),
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text('Net Selisih', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: PdfColors.amber900)),
+                        pw.Text(_fmtRp(netSelisihHpp), style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
+                        pw.Text('Total selisih nilai HPP', style: const pw.TextStyle(fontSize: 8.5)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 14),
+            pw.Text('Detail Selisih Produk', style: pw.TextStyle(fontSize: 11.5, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 6),
+            for (final it in diffItems) ...[
+              () {
+                final f = it.stokFisik!;
+                final dPcs = (f - it.stokSistem).round();
+                final hppVal = ((f - it.stokSistem) * it.hargaModal).round();
+                final isPlus = dPcs > 0;
+                final signStr = isPlus ? '+$dPcs pcs' : '$dPcs pcs';
+                final kat = it.kategori.trim().isEmpty ? 'Umum' : it.kategori.trim();
+                return pw.Container(
+                  margin: const pw.EdgeInsets.only(bottom: 6),
+                  padding: const pw.EdgeInsets.all(8),
+                  decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey300), borderRadius: pw.BorderRadius.circular(5)),
+                  child: pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Expanded(
+                        child: pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          children: [
+                            pw.Text(it.namaProduk, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                            pw.Text('SKU: ${it.kodeSku} • Kategori: $kat', style: const pw.TextStyle(fontSize: 8.5, color: PdfColors.grey700)),
+                          ],
+                        ),
+                      ),
+                      pw.Text(signStr, style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold)),
+                      pw.SizedBox(width: 10),
+                      pw.Text(_fmtRp(hppVal), style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold)),
+                      pw.SizedBox(width: 10),
+                      pw.Text(isPlus ? 'PLUS' : 'MINUS', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: isPlus ? PdfColors.green800 : PdfColors.red800)),
+                    ],
+                  ),
+                );
+              }(),
+            ],
+            pw.Spacer(),
+            pw.Divider(),
+            pw.Text('Total Net Selisih: ${_fmtRp(netSelisihHpp)}', style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
+            pw.Text('Selisih negatif akan dicatat sebagai penyesuaian untuk periode 26 Nov 2023. Hasil telah di-posting dan tidak dapat diedit kembali.', style: const pw.TextStyle(fontSize: 9)),
+            pw.SizedBox(height: 4),
+            pw.Text('Diposting oleh $postedBy • $tglLabel $jamLabel', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+          ],
+        ),
+      ),
+    );
+
+    final bytes = await pdf.save();
+    if (shareMode) {
+      await Printing.sharePdf(bytes: bytes, filename: 'Berita_Acara_Final_${doc.id}.pdf');
+    } else {
+      await Printing.layoutPdf(onLayout: (_) async => bytes);
+    }
+  }
+
+  Widget _buildStep6(KksoDocument doc) {
+    if (!_isOwnerOrSis) {
+      return Scaffold(
+        key: const ValueKey('step6_restricted'),
+        backgroundColor: const Color(0xFFF5F7FA),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.lock_outline_rounded, size: 44, color: Colors.black45),
+                const SizedBox(height: 10),
+                const Text(
+                  'Final Stock Opname Result Report hanya tersedia untuk Owner.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: () => setState(() {
+                    _aktifKkso = null;
+                    _step6Doc = null;
+                    _kksoStep = 0;
+                  }),
+                  child: const Text('Kembali'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    final reportDoc = _step6Doc ?? doc;
+    final diffItems = reportDoc.items.where((it) {
+      final f = it.stokFisik;
+      return f != null && (f - it.stokSistem).abs() > 0.0001;
+    }).toList();
+
+    int minusProduk = 0;
+    int minusPcs = 0;
+    int minusHpp = 0;
+    int plusProduk = 0;
+    int plusPcs = 0;
+    int plusHpp = 0;
+
+    for (final it in diffItems) {
+      final f = it.stokFisik!;
+      final deltaNum = f - it.stokSistem;
+      final deltaInt = deltaNum.round();
+      final hppInt = (deltaNum * it.hargaModal).round();
+      if (deltaInt < 0) {
+        minusProduk += 1;
+        minusPcs += deltaInt.abs();
+        minusHpp += hppInt.abs();
+      } else if (deltaInt > 0) {
+        plusProduk += 1;
+        plusPcs += deltaInt;
+        plusHpp += hppInt.abs();
+      }
+    }
+
+    final netSelisihHpp = plusHpp - minusHpp;
+    final postedBy = (reportDoc.disetujuiOleh?.trim().isNotEmpty ?? false)
+        ? reportDoc.disetujuiOleh!.trim()
+        : (widget.currentStaff?.nama.trim().isNotEmpty ?? false)
+            ? widget.currentStaff!.nama.trim()
+            : 'Admin Operasional';
+    final tglPosted = reportDoc.tanggalPosted ?? DateTime.now();
+    final tglLabel = '${tglPosted.day} ${_namaBulanStep6(tglPosted.month)} ${tglPosted.year}';
+    final jamLabel = '${tglPosted.hour.toString().padLeft(2, "0")}:${tglPosted.minute.toString().padLeft(2, "0")} WIB';
+    final tokoLabel = widget.toko?.namaToko ?? 'Nusantara Retail POS';
+
+    String fmtSignedRp(int val) => val > 0 ? '+${_fmtRp(val)}' : _fmtRp(val);
+
+    return Scaffold(
+      key: const ValueKey('step6_final_report'),
+      resizeToAvoidBottomInset: false,
+      backgroundColor: const Color(0xFFF3F6F4),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(14),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.grey.shade200),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withAlpha(10),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => setState(() {
+                          _aktifKkso = null;
+                          _step6Doc = null;
+                          _kksoStep = 0;
+                        }),
+                        icon: const Icon(Icons.arrow_back_rounded, color: Colors.black87),
+                      ),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Final Stock Opname Result Report',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Colors.black87),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Ringkasan Hasil Akhir Untuk Owner',
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.black54),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          foregroundColor: Colors.black87,
+                          side: BorderSide(color: Colors.grey.shade300),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        onPressed: () => _exportBeritaAcaraStep6(reportDoc, shareMode: false),
+                        icon: const Icon(Icons.print_rounded, size: 15),
+                        label: const Text('Print', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800)),
+                      ),
+                      const SizedBox(width: 6),
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          backgroundColor: const Color(0xFF2563EB),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        onPressed: () => _exportBeritaAcaraStep6(reportDoc, shareMode: true),
+                        icon: const Icon(Icons.download_rounded, size: 15),
+                        label: const Text('Export PDF', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Hasil Stock Opname • ${reportDoc.id} • $tglLabel • $jamLabel',
+                          style: const TextStyle(fontSize: 10.5, color: Colors.black54, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFDCFCE7),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.check_circle_rounded, size: 12, color: Color(0xFF15803D)),
+                            SizedBox(width: 4),
+                            Text(
+                              'FIXED POSTED',
+                              style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w900, color: Color(0xFF15803D)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF2F2),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFFCA5A5)),
+                    ),
+                    child: Column(
+                      children: [
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF87171),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.trending_down_rounded, color: Colors.white, size: 22),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Minus $minusProduk Produk',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Colors.black87),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '-$minusPcs pcs',
+                          style: gayaAngka(const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFFB91C1C))),
+                        ),
+                        Text(
+                          '${_fmtRp(minusHpp)} HPP',
+                          style: gayaAngka(const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Colors.black54)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFECFDF5),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF6EE7B7)),
+                    ),
+                    child: Column(
+                      children: [
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF4ADE80),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.trending_up_rounded, color: Colors.white, size: 22),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Plus $plusProduk Produk',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Colors.black87),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '+$plusPcs pcs',
+                          style: gayaAngka(const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF047857))),
+                        ),
+                        Text(
+                          '${_fmtRp(plusHpp)} HPP',
+                          style: gayaAngka(const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Colors.black54)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFFBEB),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFFCD34D)),
+                    ),
+                    child: Column(
+                      children: [
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFBBF24),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.scale_rounded, color: Colors.white, size: 22),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Net Selisih',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Colors.black87),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          fmtSignedRp(netSelisihHpp),
+                          style: gayaAngka(const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w900, color: Color(0xFFB45309))),
+                        ),
+                        const Text(
+                          'Total selisih nilai HPP',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.black54),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.grey.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Detail Selisih Produk',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Colors.black87),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Text(
+                          'Ringkasan untuk Owner',
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.black54),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Row(
+                      children: [
+                        Expanded(flex: 4, child: Text('PRODUK', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800, color: Colors.black54))),
+                        Expanded(flex: 2, child: Text('SKU', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800, color: Colors.black54))),
+                        Expanded(flex: 2, child: Text('SELISIH', textAlign: TextAlign.center, style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800, color: Colors.black54))),
+                        Expanded(flex: 2, child: Text('NILAI HPP', textAlign: TextAlign.right, style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800, color: Colors.black54))),
+                        SizedBox(width: 6),
+                        SizedBox(width: 46, child: Text('STATUS', textAlign: TextAlign.center, style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800, color: Colors.black54))),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  if (diffItems.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Text('Tidak ada produk yang memiliki selisih.', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                    )
+                  else
+                    for (final it in diffItems) ...[
+                      () {
+                        final f = it.stokFisik!;
+                        final dPcs = (f - it.stokSistem).round();
+                        final hppVal = ((f - it.stokSistem) * it.hargaModal).round();
+                        final isPlus = dPcs > 0;
+                        final selisihLabel = isPlus ? '+$dPcs pcs' : '$dPcs pcs';
+                        final katLabel = it.kategori.trim().isEmpty ? 'Umum' : it.kategori.trim();
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.grey.shade200),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                flex: 4,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(it.namaProduk, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+                                    Text('Kategori: $katLabel', style: const TextStyle(fontSize: 10, color: Colors.black54)),
+                                  ],
+                                ),
+                              ),
+                              Expanded(
+                                flex: 2,
+                                child: Text(
+                                  it.kodeSku,
+                                  style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Colors.black87),
+                                ),
+                              ),
+                              Expanded(
+                                flex: 2,
+                                child: Text(
+                                  selisihLabel,
+                                  textAlign: TextAlign.center,
+                                  style: gayaAngka(
+                                    TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w900,
+                                      color: isPlus ? const Color(0xFF047857) : const Color(0xFFB91C1C),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                flex: 2,
+                                child: Text(
+                                  fmtSignedRp(hppVal),
+                                  textAlign: TextAlign.right,
+                                  style: gayaAngka(
+                                    TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                      color: isPlus ? const Color(0xFF047857) : const Color(0xFFB91C1C),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Container(
+                                width: 46,
+                                padding: const EdgeInsets.symmetric(vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: isPlus ? const Color(0xFFDCFCE7) : const Color(0xFFFEE2E2),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                alignment: Alignment.center,
+                                child: Text(
+                                  isPlus ? 'PLUS' : 'MINUS',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w900,
+                                    color: isPlus ? const Color(0xFF15803D) : const Color(0xFFB91C1C),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }(),
+                    ],
+                  const Divider(height: 18),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Total Net Selisih:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900)),
+                      Text(
+                        fmtSignedRp(netSelisihHpp),
+                        style: gayaAngka(
+                          TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
+                            color: netSelisihHpp >= 0 ? const Color(0xFF047857) : const Color(0xFFB91C1C),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  const Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.info_outline_rounded, size: 14, color: Colors.black54),
+                      SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Selisih negatif akan dicatat sebagai penyesuaian untuk periode 26 Nov 2023. Hasil telah di-posting dan tidak dapat diedit kembali.',
+                          style: TextStyle(fontSize: 10.5, color: Colors.black87, height: 1.3),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Diposting oleh $postedBy • $tglLabel • $jamLabel',
+                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.black54),
+                      ),
+                      Text(
+                        'Dokumen resmi • $tokoLabel',
+                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.black45),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildStep0({KksoJenis? jenisAwal}) {
@@ -2628,6 +3304,7 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
     if (_kksoStep == 3) return _buildStep3(doc);
     if (_kksoStep == 4) return _buildStep4(doc);
     if (_kksoStep == 5) return _buildStep5(doc);
+    if (_kksoStep == 6) return _buildStep6(doc);
     if (_kksoStep == 1) return _buildStep1(doc);
     if (doc.status == KksoStatus.hitung) {
       return _buildStep1(doc);
