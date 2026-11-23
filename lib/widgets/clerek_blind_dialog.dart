@@ -134,7 +134,7 @@ class _ModalInputSetoranAntiFraudState extends State<_ModalInputSetoranAntiFraud
   @override
   void initState() {
     super.initState();
-    _digits = widget.draft.totalFisikTunai > 0 ? widget.draft.totalFisikTunai.toString() : '786500';
+    _digits = widget.draft.totalFisikTunai > 0 ? widget.draft.totalFisikTunai.toString() : '0';
   }
 
   int get _nominalFisik => int.tryParse(_digits) ?? 0;
