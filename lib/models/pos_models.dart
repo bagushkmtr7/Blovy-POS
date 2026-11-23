@@ -871,6 +871,34 @@ class KksoItem {
       );
 }
 
+class KksoPrint {
+  final int versi;
+  final int totalHppSelisih;
+  final DateTime dicetakPada;
+  final List<String> ringkasanVersi;
+
+  const KksoPrint({
+    required this.versi,
+    required this.totalHppSelisih,
+    required this.dicetakPada,
+    this.ringkasanVersi = const [],
+  });
+
+  Map<String, dynamic> toMap() => {
+        'versi': versi,
+        'totalHppSelisih': totalHppSelisih,
+        'dicetakPada': dicetakPada.toIso8601String(),
+        'ringkasanVersi': ringkasanVersi,
+      };
+
+  factory KksoPrint.fromMap(Map<String, dynamic> m) => KksoPrint(
+        versi: (m['versi'] as int?) ?? 1,
+        totalHppSelisih: (m['totalHppSelisih'] as int?) ?? 0,
+        dicetakPada: DateTime.tryParse((m['dicetakPada'] as String?) ?? '') ?? DateTime.now(),
+        ringkasanVersi: ((m['ringkasanVersi'] as List?) ?? []).map((e) => e.toString()).toList(),
+      );
+}
+
 class KksoDocument {
   final String id;
   final KksoJenis jenis;
@@ -888,6 +916,8 @@ class KksoDocument {
   final DateTime? tanggalSelesaiHitung;
   final DateTime? tanggalPosted;
   final String? pdfBase64;
+  final KksoPrint? lastPrint;
+  final List<String> editLogs;
   final List<KksoItem> items;
 
   const KksoDocument({
@@ -907,6 +937,8 @@ class KksoDocument {
     this.tanggalSelesaiHitung,
     this.tanggalPosted,
     this.pdfBase64,
+    this.lastPrint,
+    this.editLogs = const [],
     required this.items,
   });
 
@@ -951,6 +983,8 @@ class KksoDocument {
     DateTime? tanggalSelesaiHitung,
     DateTime? tanggalPosted,
     String? pdfBase64,
+    KksoPrint? lastPrint,
+    List<String>? editLogs,
     List<KksoItem>? items,
   }) {
     return KksoDocument(
@@ -970,6 +1004,8 @@ class KksoDocument {
       tanggalSelesaiHitung: tanggalSelesaiHitung ?? this.tanggalSelesaiHitung,
       tanggalPosted: tanggalPosted ?? this.tanggalPosted,
       pdfBase64: pdfBase64 ?? this.pdfBase64,
+      lastPrint: lastPrint ?? this.lastPrint,
+      editLogs: editLogs ?? this.editLogs,
       items: items ?? this.items,
     );
   }
@@ -991,6 +1027,8 @@ class KksoDocument {
         'tanggalSelesaiHitung': tanggalSelesaiHitung?.toIso8601String(),
         'tanggalPosted': tanggalPosted?.toIso8601String(),
         'pdfBase64': pdfBase64,
+        'lastPrint': lastPrint?.toMap(),
+        'editLogs': editLogs,
         'items': items.map((e) => e.toMap()).toList(),
       };
 
@@ -1019,6 +1057,8 @@ class KksoDocument {
             DateTime.tryParse((m['tanggalSelesaiHitung'] as String?) ?? ''),
         tanggalPosted: DateTime.tryParse((m['tanggalPosted'] as String?) ?? ''),
         pdfBase64: m['pdfBase64'] as String?,
+        lastPrint: m['lastPrint'] != null ? KksoPrint.fromMap(Map<String, dynamic>.from(m['lastPrint'] as Map)) : null,
+        editLogs: ((m['editLogs'] as List?) ?? []).map((e) => e.toString()).toList(),
         items: ((m['items'] as List?) ?? [])
             .map((e) => KksoItem.fromMap(Map<String, dynamic>.from(e as Map)))
             .toList(),
