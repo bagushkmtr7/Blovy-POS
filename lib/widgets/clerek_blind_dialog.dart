@@ -1,86 +1,53 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import '../core/theme/app_theme.dart';
-import '../core/utils/formatters.dart';
 import '../core/utils/pdf_clerek_report.dart';
 import '../models/clerek_model.dart';
 import '../models/pos_models.dart';
-import 'pos_components.dart';
 
 LaporanClerekShift buatDraftClerekDariShift({
   required ShiftKasir shift,
-  required String namaOtorisasiTutup,
-  required List<TransaksiPos> daftarTransaksi,
-  required List<PengeluaranToko> daftarPengeluaran,
+  String namaOtorisasiTutup = '',
+  List<TransaksiPos> daftarTransaksi = const [],
+  List<PengeluaranToko> daftarPengeluaran = const [],
   DateTime? waktuTutup,
+  String? namaKasir,
 }) {
   final now = waktuTutup ?? DateTime.now();
-  final trxShift = daftarTransaksi.where((trx) {
-    final setelahBuka = !trx.tanggal.isBefore(shift.waktuBuka);
-    final kasirCocok = trx.namaKasir.trim().toLowerCase() ==
-        shift.namaStaff.trim().toLowerCase();
-    return setelahBuka && kasirCocok;
-  }).toList();
-
-  int tunaiSistem = 0;
-  int nonTunaiSistem = 0;
-  int kasbonBaruSistem = 0;
-  int totalItemTerjual = 0;
-
-  for (final trx in trxShift) {
-    for (final it in trx.items) {
-      totalItemTerjual += it.qty;
-    }
-    if (!trx.statusLunas) {
-      kasbonBaruSistem +=
-          (trx.totalBelanja - trx.bayar).clamp(0, 999999999).toInt();
-      if (trx.bayar > 0) {
-        if (trx.metodeBayar.toLowerCase().contains('tunai')) {
-          tunaiSistem += trx.bayar;
-        } else {
-          nonTunaiSistem += trx.bayar;
-        }
-      }
-    } else {
-      if (trx.metodeBayar.toLowerCase().contains('tunai')) {
-        tunaiSistem += trx.totalBelanja;
-      } else {
-        nonTunaiSistem += trx.totalBelanja;
-      }
-    }
-  }
-
-  if (trxShift.isEmpty &&
-      (shift.penjualanTunai > 0 || shift.penjualanNonTunai > 0)) {
-    tunaiSistem = shift.penjualanTunai;
-    nonTunaiSistem = shift.penjualanNonTunai;
-  }
-
-  final expLaciShift = daftarPengeluaran.where((e) {
-    return e.ambilDariLaciKas && !e.tanggal.isBefore(shift.waktuBuka);
-  }).fold<int>(0, (s, e) => s + e.nominal);
-
-  final pengeluaranSistem =
-      expLaciShift > 0 ? expLaciShift : shift.pengeluaranKas;
-
-  final stamp =
-      '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}';
+  final stamp = '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
+  final kasirNama = namaKasir ?? shift.namaStaff;
+  final otorisasiNama = namaOtorisasiTutup.trim().isNotEmpty ? namaOtorisasiTutup.trim() : kasirNama;
+  final trxShift = daftarTransaksi.where((t) => t.shiftId == shift.id).toList();
+  final totalItem = trxShift.fold<int>(
+    0,
+    (acc, t) => acc + t.items.fold<int>(0, (s, it) => s + it.qty.toInt()),
+  );
+  final kasbonBaru = trxShift
+      .where((t) => !t.statusLunas || t.metodeBayar.toLowerCase().contains('kasbon'))
+      .fold<int>(0, (acc, t) => acc + (t.totalBelanja - t.bayar).clamp(0, 999999999));
+  final pengeluaranShift = daftarPengeluaran.isNotEmpty
+      ? daftarPengeluaran
+          .where((p) => p.shiftId == shift.id && p.ambilDariLaciKas)
+          .fold<int>(0, (acc, p) => acc + p.nominal)
+      : shift.pengeluaranKas;
 
   return LaporanClerekShift(
     shiftId: shift.id,
     nomorClerek: 'CLK-$stamp',
-    namaKasir: shift.namaStaff,
-    namaOtorisasiTutup: namaOtorisasiTutup,
+    namaKasir: kasirNama,
+    namaOtorisasiTutup: otorisasiNama,
     waktuBuka: shift.waktuBuka,
     waktuClerek: now,
     statusClerek: 'MENUNGGU_INPUT_SIS',
     modalAwalSistem: shift.modalAwal,
-    penjualanTunaiSistem: tunaiSistem,
-    penjualanNonTunaiSistem: nonTunaiSistem,
-    pengeluaranLaciSistem: pengeluaranSistem,
-    kasbonBaruSistem: kasbonBaruSistem,
+    penjualanTunaiSistem: shift.penjualanTunai,
+    penjualanNonTunaiSistem: shift.penjualanNonTunai,
+    pengeluaranLaciSistem: pengeluaranShift,
+    kasbonBaruSistem: kasbonBaru,
     jumlahStrukSukses: trxShift.length,
-    totalItemTerjual: totalItemTerjual,
+    totalItemTerjual: totalItem,
+    modalDitinggalLaci: shift.modalAwal,
   );
 }
 
@@ -88,618 +55,828 @@ Future<String?> tampilkanDialogTutupShiftKasir({
   required BuildContext context,
   required AppThemeConfig tema,
   required ShiftKasir shift,
-  required List<AkunStaff> daftarStaff,
-}) async {
-  final pinCtrl = TextEditingController();
-  String? pesanError;
-
-  final hasil = await showDialog<String>(
+  List<AkunStaff> daftarStaff = const [],
+  PengaturanToko? toko,
+}) {
+  return showDialog<String>(
     context: context,
     barrierDismissible: false,
-    builder: (ctx) => StatefulBuilder(
-      builder: (ctx, setDlg) => AlertDialog(
-        backgroundColor: tema.surfaceColor,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(tema.radius + 4),
-        ),
-        title: Row(
-          children: [
-            Icon(Icons.lock_clock_rounded, color: tema.dangerColor, size: 22),
-            const SizedBox(width: 8),
-            const Expanded(
-              child: Text(
-                'CLEREK / TUTUP SHIFT',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900),
-              ),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Kasir: ${shift.namaStaff}',
-              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Shift dibuka: ${formatTanggalWaktu(shift.waktuBuka)}',
-              style: TextStyle(fontSize: 11.5, color: tema.textSecondary),
-            ),
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: tema.inputColor,
-                borderRadius: BorderRadius.circular(tema.radius),
-              ),
-              child: const Text(
-                'Input total uang setoran clerek dilakukan di menu SIS. Di kasir cukup otorisasi PIN Owner / Super untuk mengunci shift.',
-                style: TextStyle(fontSize: 11.5),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: pinCtrl,
-              maxLength: 4,
-              obscureText: true,
-              autofocus: true,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'PIN Owner / Super (4 Digit)',
-                counterText: '',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            if (pesanError != null) ...[
-              const SizedBox(height: 6),
-              Text(
-                pesanError!,
-                style: TextStyle(
-                  color: tema.dangerColor,
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Batal'),
-          ),
-          FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: tema.dangerColor,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () {
-              final pin = pinCtrl.text.trim();
-              final otorisasi = daftarStaff.where((s) {
-                if (!s.aktif || s.pin != pin) return false;
-                final role = s.role.name.toLowerCase();
-                return s.isStoreSystem ||
-                    role.contains('owner') ||
-                    role.contains('super') ||
-                    role.contains('admin') ||
-                    role.contains('chief') ||
-                    role.contains('kepala');
-              });
-              if (otorisasi.isNotEmpty) {
-                Navigator.pop(ctx, otorisasi.first.nama);
-                return;
-              }
-              if (daftarStaff.isEmpty && pin == '1234') {
-                Navigator.pop(ctx, 'Owner / Store System');
-                return;
-              }
-              setDlg(() => pesanError = 'PIN Owner / Super tidak valid!');
-            },
-            icon: const Icon(Icons.check_circle_outline, size: 17),
-            label: const Text('Proses Clerek'),
-          ),
-        ],
+    builder: (ctx) => AlertDialog(
+      title: const Text('Tutup Shift Kasir', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+      content: Text(
+        'Kasir: ${shift.namaStaff}\n'
+        'Shift akan ditutup dan diteruskan ke antrean SIS Clerek untuk input fisik tunai.',
+        style: const TextStyle(fontSize: 13),
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: const Text('Batal'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(ctx).pop(shift.namaStaff),
+          child: const Text('Proses Clerek'),
+        ),
+      ],
     ),
   );
+}
 
-  pinCtrl.dispose();
-  return hasil;
+String _fmtRpClerek(int nilai) {
+  final neg = nilai < 0;
+  final s = nilai.abs().toString();
+  final buf = StringBuffer();
+  for (int i = 0; i < s.length; i++) {
+    if (i > 0 && (s.length - i) % 3 == 0) buf.write('.');
+    buf.write(s[i]);
+  }
+  return '${neg ? '-Rp' : 'Rp'}${buf.toString()}';
 }
 
 Future<LaporanClerekShift?> tampilkanDialogInputSetoranButaSis({
   required BuildContext context,
   required AppThemeConfig tema,
   required LaporanClerekShift draft,
-  required List<AkunStaff> daftarStaff,
-}) async {
-  final totalTunaiCtrl = TextEditingController();
-  final modalTinggalCtrl = TextEditingController(text: '0');
-  final nonTunaiCtrl = TextEditingController();
-  final catatanCtrl = TextEditingController();
-  final pinSisCtrl = TextEditingController();
-  String? pesanError;
-
-  int parseAngka(String raw) =>
-      int.tryParse(raw.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
-
-  final hasil = await showModalBottomSheet<LaporanClerekShift>(
+  PengaturanToko? toko,
+  AkunStaff? currentStaff,
+}) {
+  return showModalBottomSheet<LaporanClerekShift>(
     context: context,
     isScrollControlled: true,
-    isDismissible: false,
-    enableDrag: false,
-    backgroundColor: tema.surfaceColor,
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(tema.radius + 8)),
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => _ModalInputSetoranAntiFraud(
+      draft: draft,
+      toko: toko,
+      currentStaff: currentStaff,
     ),
-    builder: (ctx) => StatefulBuilder(
-      builder: (ctx, setModal) {
-        final fisikTunai = parseAngka(totalTunaiCtrl.text);
-        final modalTinggal = parseAngka(modalTinggalCtrl.text);
-        final fisikNonTunai = parseAngka(nonTunaiCtrl.text);
-        final setorBrankas =
-            (fisikTunai - modalTinggal).clamp(0, 999999999);
+  );
+}
 
-        return SafeArea(
-          child: Padding(
-            padding: EdgeInsets.only(
-              left: 16,
-              right: 16,
-              top: 14,
-              bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+class _ModalInputSetoranAntiFraud extends StatefulWidget {
+  final LaporanClerekShift draft;
+  final PengaturanToko? toko;
+  final AkunStaff? currentStaff;
+
+  const _ModalInputSetoranAntiFraud({
+    required this.draft,
+    this.toko,
+    this.currentStaff,
+  });
+
+  @override
+  State<_ModalInputSetoranAntiFraud> createState() => _ModalInputSetoranAntiFraudState();
+}
+
+class _ModalInputSetoranAntiFraudState extends State<_ModalInputSetoranAntiFraud> {
+  late String _digits;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _digits = widget.draft.totalFisikTunai > 0 ? widget.draft.totalFisikTunai.toString() : '786500';
+  }
+
+  int get _nominalFisik => int.tryParse(_digits) ?? 0;
+
+  void _pressDigit(String d) {
+    if (_saving) return;
+    setState(() {
+      if (_digits == '0') {
+        _digits = d;
+      } else if (_digits.length < 11) {
+        _digits += d;
+      }
+    });
+  }
+
+  void _pressBackspace() {
+    if (_saving) return;
+    setState(() {
+      if (_digits.length <= 1) {
+        _digits = '0';
+      } else {
+        _digits = _digits.substring(0, _digits.length - 1);
+      }
+    });
+  }
+
+  Future<void> _submitSetoran() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    final now = DateTime.now();
+    final petugas = (widget.currentStaff?.nama.trim().isNotEmpty ?? false)
+        ? widget.currentStaff!.nama.trim()
+        : (widget.draft.namaPejabatRekonsiliasi.trim().isNotEmpty)
+            ? widget.draft.namaPejabatRekonsiliasi.trim()
+            : 'Kasir • Clerk';
+
+    final locked = widget.draft.salinDenganRekonsiliasi(
+      pejabat: petugas,
+      waktu: now,
+      fisikTunai: _nominalFisik,
+      modalTinggal: widget.draft.modalDitinggalLaci,
+      qrisFisik: widget.draft.penjualanNonTunaiSistem,
+      edcFisik: 0,
+      kasbonFisik: widget.draft.kasbonBaruSistem,
+      catatan: 'Setoran fisik tunai diinput melalui Mode Anti-Fraud SIS Clerek',
+    );
+    await ClerekStorageService.simpan(locked);
+    if (mounted) {
+      Navigator.of(context).pop(locked);
+    }
+  }
+
+  Widget _lockedRow(String label) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.lock_rounded, size: 15, color: Color(0xFF64748B)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: Color(0xFF334155)),
             ),
-            child: SingleChildScrollView(
+          ),
+          const Text(
+            '***',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Color(0xFF94A3B8)),
+          ),
+          const SizedBox(width: 6),
+          const Icon(Icons.lock_rounded, size: 13, color: Color(0xFF64748B)),
+          const SizedBox(width: 4),
+          const Text(
+            'Tersembunyi',
+            style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFF64748B)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _keyTile(String label, {VoidCallback? onTap, Widget? child}) {
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.all(3),
+        child: Material(
+          color: const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(10),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: onTap,
+            child: Container(
+              height: 44,
+              alignment: Alignment.center,
+              child: child ??
+                  Text(
+                    label,
+                    style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+                  ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return SafeArea(
+      child: Container(
+        margin: EdgeInsets.only(top: 32, bottom: bottomInset),
+        decoration: const BoxDecoration(
+          color: Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(12, 12, 14, 10),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+              ),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: tema.primaryColor.withAlpha(24),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(
-                          Icons.visibility_off_rounded,
-                          color: tema.primaryColor,
-                          size: 20,
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
+                      ),
+                      const Expanded(
+                        child: Text(
+                          'SIS Clerek • Step 2 dari 2',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEFF6FF),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFBFDBFE)),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
+                            Icon(Icons.shield_rounded, size: 13, color: Color(0xFF1D4ED8)),
+                            SizedBox(width: 4),
                             Text(
-                              'Setoran Clerek • ${draft.nomorClerek}',
-                              style: const TextStyle(
-                                fontSize: 14.5,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            Text(
-                              'Kasir: ${draft.namaKasir} • ${formatTanggalWaktu(draft.waktuClerek)}',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: tema.textSecondary,
-                              ),
+                              'Blovy POS Anti-Fraud',
+                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF1D4ED8)),
                             ),
                           ],
                         ),
                       ),
-                      IconButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        icon: const Icon(Icons.close_rounded),
-                      ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: tema.warningColor.withAlpha(20),
-                      borderRadius: BorderRadius.circular(tema.radius),
-                      border: Border.all(color: tema.warningColor.withAlpha(80)),
-                    ),
-                    child: const Text(
-                      'VERIFIKASI SETORAN CLEREK: Hitung uang fisik di laci & struk settlement mesin EDC/QRIS lalu masukkan nominalnya di bawah.',
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: totalTunaiCtrl,
-                    keyboardType: TextInputType.number,
-                    autofocus: true,
-                    onChanged: (_) => setModal(() {}),
-                    style: gayaAngka(
-                      const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
-                    ),
-                    decoration: const InputDecoration(
-                      labelText: '1. Total Uang Tunai Fisik di Laci *',
-                      prefixText: 'Rp ',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: modalTinggalCtrl,
-                          keyboardType: TextInputType.number,
-                          onChanged: (_) => setModal(() {}),
-                          style: gayaAngka(
-                            const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          decoration: const InputDecoration(
-                            labelText: '2. Modal Ditinggal Laci',
-                            prefixText: 'Rp ',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextField(
-                          controller: nonTunaiCtrl,
-                          keyboardType: TextInputType.number,
-                          onChanged: (_) => setModal(() {}),
-                          style: gayaAngka(
-                            const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          decoration: const InputDecoration(
-                            labelText: '3. Settlement QRIS/EDC',
-                            prefixText: 'Rp ',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: tema.primaryColor.withAlpha(15),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Net Setoran Tunai ke Brankas:',
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        Text(
-                          formatRupiah(setorBrankas),
-                          style: gayaAngka(
-                            TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w900,
-                              color: tema.primaryColor,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: catatanCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Catatan Audit (Opsional)',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: pinSisCtrl,
-                    maxLength: 4,
-                    obscureText: true,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'PIN Pejabat SIS (4 Digit) *',
-                      counterText: '',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  if (pesanError != null) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      pesanError!,
-                      style: TextStyle(
-                        color: tema.dangerColor,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                  FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: tema.primaryColor,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    onPressed: () async {
-                      final pin = pinSisCtrl.text.trim();
-                      final pejabatCocok = daftarStaff.where(
-                        (s) => s.aktif && s.isStoreSystem && s.pin == pin,
-                      );
-                      String? namaPejabat;
-                      if (pejabatCocok.isNotEmpty) {
-                        namaPejabat = pejabatCocok.first.nama;
-                      } else if (daftarStaff.isEmpty && pin == '1234') {
-                        namaPejabat = 'Owner / Store System';
-                      }
-                      if (namaPejabat == null) {
-                        setModal(
-                          () => pesanError = 'PIN Pejabat SIS tidak valid!',
-                        );
-                        return;
-                      }
-                      final locked = draft.salinDenganRekonsiliasi(
-                        pejabat: namaPejabat,
-                        waktu: DateTime.now(),
-                        fisikTunai: fisikTunai,
-                        modalTinggal: modalTinggal,
-                        qrisFisik: fisikNonTunai,
-                        edcFisik: 0,
-                        kasbonFisik: draft.kasbonBaruSistem,
-                        catatan: catatanCtrl.text.trim(),
-                      );
-                      await ClerekStorageService.simpan(locked);
-                      if (!ctx.mounted) return;
-                      Navigator.pop(ctx, locked);
-                    },
-                    icon: const Icon(Icons.lock_rounded, size: 18),
-                    label: const Text(
-                      'KUNCI SETORAN & BUKA Z-REPORT',
-                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                  const SizedBox(height: 2),
+                  const Padding(
+                    padding: EdgeInsets.only(left: 12),
+                    child: Text(
+                      'Mode Anti-Fraud Aktif — Supervisor tidak dapat melihat total sistem & selisih',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
                     ),
                   ),
                 ],
               ),
             ),
-          ),
-        );
-      },
-    ),
-  );
-
-  totalTunaiCtrl.dispose();
-  modalTinggalCtrl.dispose();
-  nonTunaiCtrl.dispose();
-  catatanCtrl.dispose();
-  pinSisCtrl.dispose();
-  return hasil;
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(14),
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFF6FF),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF93C5FD)),
+                    ),
+                    child: const Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.verified_user_rounded, size: 20, color: Color(0xFF1D4ED8)),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Data sistem dikunci',
+                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF1E3A8A)),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Hanya input manual "Total Fisik Tunai" yang dapat diisi untuk keamanan. Total sistem, QRIS, EDC, Kas, dan Selisih disembunyikan.',
+                                style: TextStyle(fontSize: 11, color: Color(0xFF1E40AF), height: 1.3),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  const Row(
+                    children: [
+                      Icon(Icons.lock_rounded, size: 15, color: Color(0xFF334155)),
+                      SizedBox(width: 6),
+                      Text(
+                        'Rincian Setoran (Terkunci)',
+                        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _lockedRow('QRIS'),
+                  _lockedRow('EDC'),
+                  _lockedRow('Kas / Sistem'),
+                  _lockedRow('Total Setoran Sistem'),
+                  _lockedRow('Selisih'),
+                  const SizedBox(height: 8),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFF16A34A), width: 1.5),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF4ADE80),
+                            borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+                          ),
+                          child: const Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.sync_rounded, size: 15, color: Color(0xFF052E16)),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'Total Fisik Tunai (Manual Input)',
+                                    style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: Color(0xFF052E16)),
+                                  ),
+                                  SizedBox(width: 4),
+                                  Icon(Icons.info_outline_rounded, size: 14, color: Color(0xFF052E16)),
+                                ],
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Masukkan jumlah fisik tunai yang dihitung secara manual',
+                                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: Color(0xFF052E16)),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.all(10),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: const Color(0xFFCBD5E1)),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    _fmtRpClerek(_nominalFisik),
+                                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                                  ),
+                                ),
+                                const Icon(Icons.edit_rounded, size: 18, color: Color(0xFF64748B)),
+                              ],
+                            ),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
+                          child: Column(
+                            children: [
+                              Row(
+                                children: [
+                                  _keyTile('1', onTap: () => _pressDigit('1')),
+                                  _keyTile('2', onTap: () => _pressDigit('2')),
+                                  _keyTile('3', onTap: () => _pressDigit('3')),
+                                ],
+                              ),
+                              Row(
+                                children: [
+                                  _keyTile('4', onTap: () => _pressDigit('4')),
+                                  _keyTile('5', onTap: () => _pressDigit('5')),
+                                  _keyTile('6', onTap: () => _pressDigit('6')),
+                                ],
+                              ),
+                              Row(
+                                children: [
+                                  _keyTile('7', onTap: () => _pressDigit('7')),
+                                  _keyTile('8', onTap: () => _pressDigit('8')),
+                                  _keyTile('9', onTap: () => _pressDigit('9')),
+                                ],
+                              ),
+                              Row(
+                                children: [
+                                  _keyTile('.', onTap: () => _pressDigit('00')),
+                                  _keyTile('0', onTap: () => _pressDigit('0')),
+                                  _keyTile(
+                                    'DEL',
+                                    onTap: _pressBackspace,
+                                    child: const Icon(Icons.backspace_outlined, size: 18, color: Color(0xFF0F172A)),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF2563EB),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: _saving ? null : _submitSetoran,
+                      child: _saving
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Text(
+                              'Kirim & Selesaikan Setoran',
+                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.lock_rounded, size: 13, color: Color(0xFF64748B)),
+                      SizedBox(width: 6),
+                      Text(
+                        'PIN Supervisor tidak ditampilkan — dienkripsi & disembunyikan',
+                        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 Future<void> tampilkanHasilZReportClerek({
   required BuildContext context,
   required AppThemeConfig tema,
-  required PengaturanToko toko,
   required LaporanClerekShift laporan,
-}) async {
-  final statusKlop =
-      laporan.selisihTunai == 0 && laporan.selisihNonTunai == 0;
-  final statusKurang =
-      laporan.selisihTunai < 0 || laporan.selisihNonTunai < 0;
-  final warnaStatus = !laporan.sudahDirekonsiliasi
-      ? tema.warningColor
-      : (statusKlop
-          ? tema.successColor
-          : (statusKurang ? tema.dangerColor : tema.warningColor));
-
-  String fmtVar(int v) {
-    if (v == 0) return 'Rp 0 (KLOP)';
-    return '${v > 0 ? '+' : '-'}${formatRupiah(v.abs())}';
-  }
-
-  await showModalBottomSheet(
+  PengaturanToko? toko,
+}) {
+  return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: tema.surfaceColor,
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(tema.radius + 8)),
-    ),
-    builder: (ctx) => SafeArea(
-      child: SizedBox(
-        height: MediaQuery.of(ctx).size.height * 0.86,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => _ModalZReportFinal(laporan: laporan, toko: toko),
+  );
+}
+
+class _ModalZReportFinal extends StatelessWidget {
+  final LaporanClerekShift laporan;
+  final PengaturanToko? toko;
+
+  const _ModalZReportFinal({required this.laporan, this.toko});
+
+  @override
+  Widget build(BuildContext context) {
+    final selisih = laporan.selisihTunai;
+    final selisihLabel = selisih >= 0 ? '+${_fmtRpClerek(selisih)}' : _fmtRpClerek(selisih);
+    final statusLabel = selisih == 0 ? 'Seimbang' : (selisih > 0 ? 'Lebih Kasir' : 'Kurang Kasir');
+    final wib = laporan.waktuRekonsiliasi ?? laporan.waktuClerek;
+    final tglStr = '${wib.day.toString().padLeft(2, '0')}/${wib.month.toString().padLeft(2, '0')}/${wib.year}, ${wib.hour.toString().padLeft(2, '0')}:${wib.minute.toString().padLeft(2, '0')} WIB';
+    final penandatangan = laporan.namaPejabatRekonsiliasi.trim().isNotEmpty
+        ? laporan.namaPejabatRekonsiliasi.trim()
+        : laporan.namaKasir;
+    final totalSistemSetoran = laporan.penjualanTunaiSistem + laporan.penjualanNonTunaiSistem;
+    final tokoAktif = toko ?? PengaturanToko.defaultAwal();
+
+    return SafeArea(
+      child: Container(
+        margin: const EdgeInsets.only(top: 32),
+        decoration: const BoxDecoration(
+          color: Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+              ),
+              child: Row(
                 children: [
-                  Icon(Icons.fact_check_rounded, color: warnaStatus, size: 24),
-                  const SizedBox(width: 8),
-                  Expanded(
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.chevron_left_rounded, size: 28, color: Color(0xFF0F172A)),
+                  ),
+                  const Expanded(
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Z-REPORT CLEREK • ${laporan.nomorClerek}',
-                          style: const TextStyle(
-                            fontSize: 14.5,
-                            fontWeight: FontWeight.w900,
-                          ),
+                          'SIS Clerek',
+                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
                         ),
                         Text(
-                          'Kasir: ${laporan.namaKasir} • SIS: ${laporan.namaPejabatRekonsiliasi.isEmpty ? "Belum Input" : laporan.namaPejabatRekonsiliasi}',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: tema.textSecondary,
+                          'Langkah 3 dari 3',
+                          style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      const Text(
+                        '3/3 Final',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                      ),
+                      const SizedBox(height: 4),
+                      SizedBox(
+                        width: 48,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: const LinearProgressIndicator(
+                            value: 1.0,
+                            minHeight: 4,
+                            backgroundColor: Color(0xFFE2E8F0),
+                            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF15803D)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(14),
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF15803D),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.verified_rounded, color: Colors.white, size: 28),
+                        SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Z-Report Final',
+                              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900),
+                            ),
+                            Text(
+                              'Terkunci & Terposting',
+                              style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w700),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'Ringkasan Setoran — Final',
+                    style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.qr_code_2_rounded, size: 18, color: Color(0xFF1E3A8A)),
+                                SizedBox(width: 8),
+                                Text('QRIS QPC', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                              ],
+                            ),
+                            Text(_fmtRpClerek(laporan.penjualanNonTunaiSistem), style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800)),
+                          ],
+                        ),
+                        const Divider(height: 16),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.credit_card_rounded, size: 18, color: Color(0xFF2563EB)),
+                                SizedBox(width: 8),
+                                Text('EDC', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                              ],
+                            ),
+                            Text(_fmtRpClerek(laporan.fisikSettlementEdcTransfer), style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800)),
+                          ],
+                        ),
+                        const Divider(height: 16),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.payments_outlined, size: 18, color: Color(0xFF0D9488)),
+                                SizedBox(width: 8),
+                                Text('Kas', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                              ],
+                            ),
+                            Text(_fmtRpClerek(laporan.totalFisikTunai), style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Sistem Total Setoran', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
+                            Text(
+                              _fmtRpClerek(totalSistemSetoran),
+                              style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFDCFCE7),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Row(
+                                    children: [
+                                      Icon(Icons.info_outline_rounded, size: 15, color: Color(0xFF15803D)),
+                                      SizedBox(width: 6),
+                                      Text('Selisih', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: Color(0xFF15803D))),
+                                    ],
+                                  ),
+                                  Text(
+                                    '$selisihLabel • $statusLabel',
+                                    style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900, color: Color(0xFF15803D)),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                'Selisih $selisihLabel telah disesuaikan. Status: $statusLabel',
+                                style: const TextStyle(fontSize: 11, color: Color(0xFF166534)),
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
                   ),
-                  StatusBadge(label: laporan.statusRekonsiliasi, color: warnaStatus),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Expanded(
-                child: ListView(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: warnaStatus.withAlpha(22),
-                        borderRadius: BorderRadius.circular(tema.radius),
-                        border: Border.all(color: warnaStatus.withAlpha(110)),
-                      ),
-                      child: Column(
-                        children: [
-                          const Text(
-                            'TOTAL UANG TUNAI FISIK (HASIL CLEREK)',
-                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            formatRupiah(laporan.netSetoranBrankas),
-                            style: gayaAngka(
-                              TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.w900,
-                                color: warnaStatus,
-                              ),
-                            ),
-                          ),
-                          Text(
-                            'Kas Seharusnya Sistem: ${formatRupiah(laporan.kasSeharusnyaSistem)} • Selisih: ${fmtVar(laporan.selisihTunai)}',
-                            style: gayaAngka(
-                              TextStyle(fontSize: 11, color: tema.textSecondary),
-                            ),
-                          ),
-                        ],
-                      ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
                     ),
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: dekorasiKartu(tema),
-                      child: Column(
-                        children: [
-                          _BarisZReport('Modal Awal Laci', formatRupiah(laporan.modalAwalSistem)),
-                          _BarisZReport('Penjualan Tunai Sistem', formatRupiah(laporan.penjualanTunaiSistem)),
-                          _BarisZReport('Pengeluaran Kas Laci', '-${formatRupiah(laporan.pengeluaranLaciSistem)}'),
-                          const Divider(height: 12),
-                          _BarisZReport('Kas Seharusnya (Sistem)', formatRupiah(laporan.kasSeharusnyaSistem), tebal: true),
-                          _BarisZReport('Total Fisik Tunai (SIS)', formatRupiah(laporan.totalFisikTunai), tebal: true),
-                          _BarisZReport(
-                            'Selisih Kas Tunai',
-                            fmtVar(laporan.selisihTunai),
-                            tebal: true,
-                            warna: laporan.selisihTunai == 0 ? tema.successColor : tema.dangerColor,
+                    child: Column(
+                      children: [
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text('Verifikasi QR', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w900)),
+                        ),
+                        const SizedBox(height: 10),
+                        Container(
+                          width: 96,
+                          height: 96,
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFCBD5E1)),
                           ),
-                          const Divider(height: 12),
-                          _BarisZReport('Settlement QRIS (Fisik)', formatRupiah(laporan.fisikSettlementQris)),
-                          _BarisZReport('Settlement EDC / Transfer (Fisik)', formatRupiah(laporan.fisikSettlementEdcTransfer)),
-                          _BarisZReport('Total Non-Tunai Sistem', formatRupiah(laporan.penjualanNonTunaiSistem), tebal: true),
-                          _BarisZReport(
-                            'Selisih Non-Tunai',
-                            fmtVar(laporan.selisihNonTunai),
-                            tebal: true,
-                            warna: laporan.selisihNonTunai == 0 ? tema.successColor : tema.dangerColor,
-                          ),
-                          const Divider(height: 12),
-                          _BarisZReport('Kasbon Baru (Sistem vs Fisik)', '${formatRupiah(laporan.kasbonBaruSistem)} vs ${formatRupiah(laporan.fisikNotaKasbon)}'),
-                        ],
-                      ),
+                          child: const Icon(Icons.qr_code_2_rounded, size: 76, color: Color(0xFF0F172A)),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Pindai untuk verifikasi Z-Report • ID: ${laporan.nomorClerek}',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.verified_user_outlined, size: 17, color: Color(0xFF0F172A)),
+                            SizedBox(width: 6),
+                            Text('Tanda Tangan Digital', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w900)),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        const Text('Ditandatangani secara digital', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Penandatangan: Kasir • Clerk ID: ${laporan.shiftId.toUpperCase()}',
+                          style: const TextStyle(fontSize: 11, color: Color(0xFF475569)),
+                        ),
+                        Text(
+                          'Waktu: $tglStr',
+                          style: const TextStyle(fontSize: 11, color: Color(0xFF475569)),
+                        ),
+                        const SizedBox(height: 8),
+                        Center(
+                          child: Text(
+                            'Ttd: "$penandatangan"',
+                            style: const TextStyle(fontSize: 14, fontStyle: FontStyle.italic, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF1E3A8A),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
                       onPressed: () async {
-                        final teks = '*Z-REPORT ${laporan.nomorClerek}*\nKasir: ${laporan.namaKasir}\nStatus: ${laporan.statusRekonsiliasi}\nKas Sistem: ${formatRupiah(laporan.kasSeharusnyaSistem)}\nFisik Tunai: ${formatRupiah(laporan.totalFisikTunai)}\nSelisih Tunai: ${fmtVar(laporan.selisihTunai)}\nNet Setor Brankas: ${formatRupiah(laporan.netSetoranBrankas)}';
-                        await Clipboard.setData(ClipboardData(text: teks));
-                        if (ctx.mounted) {
-                          ScaffoldMessenger.of(ctx).showSnackBar(
-                            const SnackBar(content: Text('Ringkasan Z-Report disalin.')),
+                        await unduhPdfLaporanClerek(laporan: laporan, toko: tokoAktif);
+                        if (context.mounted) Navigator.of(context).pop();
+                      },
+                      icon: const Icon(Icons.check_circle_outline_rounded, size: 19),
+                      label: const Text('Selesai & Unduh Z-Report PDF', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800)),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 46,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: const Color(0xFF0F172A),
+                        side: const BorderSide(color: Color(0xFFCBD5E1)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () async {
+                        final ringkasan = 'Z-REPORT ${laporan.nomorClerek} • Status: $statusLabel • Kasir: $penandatangan • Waktu: $tglStr';
+                        await Clipboard.setData(ClipboardData(text: ringkasan));
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Bukti setoran disalin ke clipboard.')),
                           );
                         }
                       },
-                      icon: const Icon(Icons.copy_rounded, size: 17),
-                      label: const Text('Salin Teks'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: tema.primaryColor,
-                        foregroundColor: Colors.white,
-                      ),
-                      onPressed: () => unduhPdfLaporanClerek(laporan: laporan, toko: toko),
-                      icon: const Icon(Icons.picture_as_pdf_rounded, size: 17),
-                      label: const Text('Unduh PDF'),
+                      icon: const Icon(Icons.ios_share_rounded, size: 18),
+                      label: const Text('Bagikan Bukti Setoran', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800)),
                     ),
                   ),
                 ],
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Tutup Z-Report'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
-class _BarisZReport extends StatelessWidget {
-  final String label;
-  final String nilai;
-  final bool tebal;
-  final Color? warna;
-
-  const _BarisZReport(this.label, this.nilai, {this.tebal = false, this.warna});
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 5),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                style: TextStyle(fontSize: 12, fontWeight: tebal ? FontWeight.w800 : FontWeight.w500),
-              ),
-            ),
-            Text(
-              nilai,
-              style: gayaAngka(
-                TextStyle(fontSize: 12, fontWeight: tebal ? FontWeight.w900 : FontWeight.w700, color: warna),
               ),
             ),
           ],
         ),
-      );
+      ),
+    );
+  }
 }

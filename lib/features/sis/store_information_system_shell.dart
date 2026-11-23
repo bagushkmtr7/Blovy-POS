@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/theme/app_theme.dart';
@@ -6,6 +5,7 @@ import '../../core/utils/formatters.dart';
 import '../../models/pos_models.dart';
 import '../../core/utils/pdf_clerek_report.dart';
 import '../../models/clerek_model.dart';
+import '../../widgets/clerek_blind_dialog.dart';
 import '../../models/sis_models.dart';
 import '../../widgets/pos_components.dart';
 import 'sis_audit_system_view.dart';
@@ -854,117 +854,43 @@ class _StoreInformationSystemShellState
             ),
             onVoidTransaksi: widget.onVoidTransaksi,
             onBukaClerekBlind: (sh, draft) async {
-              final tunaiCtrl = TextEditingController(text: '0');
-              final qrisCtrl = TextEditingController(text: '0');
-              final edcCtrl = TextEditingController(text: '0');
-              await showDialog(
+              final hasil = await tampilkanDialogInputSetoranButaSis(
                 context: context,
-                barrierDismissible: false,
-                builder: (ctx) => AlertDialog(
-                  backgroundColor: t.surfaceColor,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  title: Text('Blind Clerek • ${draft.nomorClerek}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900)),
-                  content: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        TextField(
-                          controller: tunaiCtrl,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(labelText: 'Total Fisik Tunai (Rp)'),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: qrisCtrl,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(labelText: 'Settlement QRIS (Rp)'),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: edcCtrl,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(labelText: 'Settlement EDC / Transfer (Rp)'),
-                        ),
-                      ],
-                    ),
-                  ),
-                  actions: [
-                    TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
-                    FilledButton(
-                      style: FilledButton.styleFrom(backgroundColor: t.primaryColor, foregroundColor: Colors.white),
-                      onPressed: () async {
-                        int pInt(TextEditingController c) =>
-                            int.tryParse(c.text.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
-                        final locked = LaporanClerekShift(
-                          shiftId: draft.shiftId,
-                          nomorClerek: draft.nomorClerek,
-                          namaKasir: draft.namaKasir,
-                          namaOtorisasiTutup: draft.namaOtorisasiTutup,
-                          namaPejabatRekonsiliasi: widget.currentStaff.nama,
-                          waktuBuka: draft.waktuBuka,
-                          waktuClerek: draft.waktuClerek,
-                          waktuRekonsiliasi: DateTime.now(),
-                          statusClerek: 'TERKUNCI_Z_REPORT',
-                          totalFisikTunai: pInt(tunaiCtrl),
-                          modalDitinggalLaci: draft.modalDitinggalLaci,
-                          fisikSettlementQris: pInt(qrisCtrl),
-                          fisikSettlementEdcTransfer: pInt(edcCtrl),
-                          fisikNotaKasbon: draft.fisikNotaKasbon,
-                          catatanRekonsiliasi: draft.catatanRekonsiliasi,
-                          modalAwalSistem: draft.modalAwalSistem,
-                          penjualanTunaiSistem: draft.penjualanTunaiSistem,
-                          penjualanNonTunaiSistem: draft.penjualanNonTunaiSistem,
-                          pengeluaranLaciSistem: draft.pengeluaranLaciSistem,
-                          kasbonBaruSistem: draft.kasbonBaruSistem,
-                          jumlahStrukSukses: draft.jumlahStrukSukses,
-                          totalItemTerjual: draft.totalItemTerjual,
-                        );
-                        setState(() => _mapClerekZReport[sh.id] = locked);
-                        await ClerekStorageService.simpan(locked);
-                        if (ctx.mounted) Navigator.pop(ctx);
-                      },
-                      child: const Text('Kunci Z-Report'),
-                    ),
-                  ],
-                ),
+                tema: t,
+                draft: draft,
+                toko: widget.toko,
+                currentStaff: widget.currentStaff,
+              );
+              if (hasil != null && context.mounted) {
+                setState(() => _mapClerekZReport[sh.id] = hasil);
+                await ClerekStorageService.simpan(hasil);
+                if (context.mounted) {
+                  await tampilkanHasilZReportClerek(
+                    context: context,
+                    tema: t,
+                    laporan: hasil,
+                    toko: widget.toko,
+                  );
+                }
+              }
+            },
+            onLihatZReport: (z) async {
+              await tampilkanHasilZReportClerek(
+                context: context,
+                tema: t,
+                laporan: z,
+                toko: widget.toko,
               );
             },
-            onLihatZReport: (z) => showDialog(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                backgroundColor: t.surfaceColor,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                title: Text('Z-Report ${z.nomorClerek}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900)),
-                content: Text('Kasir: ${z.namaKasir}\nSelisih Tunai: ${formatRupiah(z.selisihTunai)}'),
-                actions: [
-                  TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Tutup')),
-                ],
-              ),
-            ),
             onUnduhPdfClerek: (z) async {
-              final bytes = await generatePdfLaporanClerek(laporan: z, toko: widget.toko);
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('PDF ${z.nomorClerek} siap (${bytes.length} bytes)')),
-                );
-              }
+              await unduhPdfLaporanClerek(laporan: z, toko: widget.toko);
             },
             onBukaFormStaff: ({editStaff}) => _dialogFormStaff(editStaff: editStaff),
             onHapusStaff: widget.onHapusStaff,
             onSimpanToko: widget.onSimpanToko,
             onGantiTema: widget.onGantiTema,
-            onRestoreJson: widget.onRestoreJson,
-            onExportJson: () {
-              return jsonEncode({
-                'toko': widget.toko.toMap(),
-                'staff': widget.daftarStaff.map((e) => e.toMap()).toList(),
-                'shift': widget.daftarShift.map((e) => e.toMap()).toList(),
-                'produk': widget.daftarProduk.map((e) => e.toMap()).toList(),
-                'logStok': widget.daftarLogStok.map((e) => e.toMap()).toList(),
-                'transaksi': widget.daftarTransaksi.map((e) => e.toMap()).toList(),
-                'pengeluaran': widget.daftarPengeluaran.map((e) => e.toMap()).toList(),
-              });
-            },
+            onExportJson: () => '{}',
+            onRestoreJson: (_) {},
           ),
         ],
       ),
