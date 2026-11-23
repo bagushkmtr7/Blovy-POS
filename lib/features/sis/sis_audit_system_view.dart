@@ -6,6 +6,21 @@ import '../../models/clerek_model.dart';
 import '../../models/pos_models.dart';
 import '../../widgets/pos_components.dart';
 
+String _ringkasRp(int n) {
+  final neg = n < 0 ? '-' : '';
+  final absN = n.abs();
+  if (absN >= 1000000000) {
+    return '${neg}Rp ${(absN / 1000000000).toStringAsFixed(2)}M';
+  }
+  if (absN >= 1000000) {
+    return '${neg}Rp ${(absN / 1000000).toStringAsFixed(2)}jt';
+  }
+  if (absN >= 1000) {
+    return '${neg}Rp ${(absN / 1000).round()}rb';
+  }
+  return '${neg}Rp $absN';
+}
+
 class SisAuditSystemView extends StatefulWidget {
   final AppThemeConfig tema;
   final PengaturanToko toko;
@@ -53,21 +68,20 @@ class SisAuditSystemView extends StatefulWidget {
 }
 
 class _SisAuditSystemViewState extends State<SisAuditSystemView>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late AnimationController _pulseCtrl;
+  late AnimationController _barCtrl;
   Timer? _clockTimer;
   DateTime _now = DateTime.now();
 
-  int _subTab = 0; // 0: Audit Struk, 1: Shift & Clerek, 2: SDM & PIN, 3: Sistem
+  int _subTab = 0;
   final TextEditingController _cariStrukCtrl = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _pulseCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    )..repeat();
+    _pulseCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1400))..repeat();
+    _barCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 2600))..repeat();
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _now = DateTime.now());
     });
@@ -76,6 +90,7 @@ class _SisAuditSystemViewState extends State<SisAuditSystemView>
   @override
   void dispose() {
     _pulseCtrl.dispose();
+    _barCtrl.dispose();
     _clockTimer?.cancel();
     _cariStrukCtrl.dispose();
     super.dispose();
@@ -93,62 +108,21 @@ class _SisAuditSystemViewState extends State<SisAuditSystemView>
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: t.surfaceColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Pengaturan Profil Toko', style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w900)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('Profil Toko & Pajak', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900)),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
-                controller: namaCtrl,
-                decoration: InputDecoration(
-                  labelText: 'Nama Toko / Outlet',
-                  filled: true,
-                  fillColor: t.inputColor,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: alamatCtrl,
-                decoration: InputDecoration(
-                  labelText: 'Alamat Toko',
-                  filled: true,
-                  fillColor: t.inputColor,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: telpCtrl,
-                decoration: InputDecoration(
-                  labelText: 'Telepon / WhatsApp',
-                  filled: true,
-                  fillColor: t.inputColor,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: pajakCtrl,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: 'Pajak / PPN (%)',
-                  filled: true,
-                  fillColor: t.inputColor,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: catatanCtrl,
-                decoration: InputDecoration(
-                  labelText: 'Catatan Footer Struk',
-                  filled: true,
-                  fillColor: t.inputColor,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
+              TextField(controller: namaCtrl, decoration: const InputDecoration(labelText: 'Nama Toko')),
+              const SizedBox(height: 8),
+              TextField(controller: alamatCtrl, decoration: const InputDecoration(labelText: 'Alamat')),
+              const SizedBox(height: 8),
+              TextField(controller: telpCtrl, decoration: const InputDecoration(labelText: 'Telepon')),
+              const SizedBox(height: 8),
+              TextField(controller: pajakCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'PPN (%)')),
+              const SizedBox(height: 8),
+              TextField(controller: catatanCtrl, decoration: const InputDecoration(labelText: 'Footer Struk')),
             ],
           ),
         ),
@@ -169,7 +143,7 @@ class _SisAuditSystemViewState extends State<SisAuditSystemView>
               );
               Navigator.pop(ctx);
             },
-            child: const Text('Simpan Profil', style: TextStyle(fontWeight: FontWeight.w800)),
+            child: const Text('Simpan', style: TextStyle(fontWeight: FontWeight.w800)),
           ),
         ],
       ),
@@ -183,39 +157,23 @@ class _SisAuditSystemViewState extends State<SisAuditSystemView>
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: t.surfaceColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Backup & Restore JSON Database', style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w900)),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Salin JSON di bawah untuk backup atau tempel JSON backup lalu tekan Restore.',
-                style: TextStyle(fontSize: 11, color: t.textSecondary),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: jsonCtrl,
-                maxLines: 7,
-                style: const TextStyle(fontSize: 10.5, fontFamily: 'monospace'),
-                decoration: InputDecoration(
-                  filled: true,
-                  fillColor: t.inputColor,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
-            ],
-          ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('Backup & Restore JSON', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900)),
+        content: TextField(
+          controller: jsonCtrl,
+          maxLines: 7,
+          style: const TextStyle(fontSize: 10.5, fontFamily: 'monospace'),
+          decoration: InputDecoration(filled: true, fillColor: t.inputColor, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Tutup')),
-          OutlinedButton(
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: t.primaryColor, foregroundColor: Colors.white),
             onPressed: () {
               widget.onRestoreJson(jsonCtrl.text.trim());
               Navigator.pop(ctx);
             },
-            child: const Text('Restore Data'),
+            child: const Text('Restore'),
           ),
         ],
       ),
@@ -225,92 +183,89 @@ class _SisAuditSystemViewState extends State<SisAuditSystemView>
   @override
   Widget build(BuildContext context) {
     final t = widget.tema;
-    final pendingClerek = widget.daftarShift
-        .where((s) => !s.aktif && widget.mapClerekZReport[s.id] == null)
-        .length;
+    final pendingClerek = widget.daftarShift.where((s) => !s.aktif && widget.mapClerekZReport[s.id] == null).length;
     final jamStr =
         '${_now.hour.toString().padLeft(2, '0')}:${_now.minute.toString().padLeft(2, '0')}:${_now.second.toString().padLeft(2, '0')}';
 
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
           child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: dekorasiKartu(t),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              gradient: LinearGradient(
+                colors: [t.primaryColor.withAlpha(32), t.surfaceColor, t.successColor.withAlpha(24)],
+              ),
+              border: Border.all(color: t.primaryColor.withAlpha(75)),
+            ),
             child: Column(
               children: [
-                Row(
-                  children: [
-                    AnimatedBuilder(
-                      animation: _pulseCtrl,
-                      builder: (_, __) {
-                        final v = _pulseCtrl.value;
-                        return Container(
-                          width: 11,
-                          height: 11,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: t.successColor,
-                            boxShadow: [
-                              BoxShadow(
-                                color: t.successColor.withAlpha(((1 - v) * 140).round()),
-                                blurRadius: 4 + (8 * v),
-                                spreadRadius: 1 + (3 * v),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
+                AnimatedBuilder(
+                  animation: _barCtrl,
+                  builder: (_, __) => ClipRRect(
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+                    child: LinearProgressIndicator(
+                      value: _barCtrl.value,
+                      minHeight: 3,
+                      backgroundColor: Colors.transparent,
+                      valueColor: AlwaysStoppedAnimation(t.successColor),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'AUDIT TRAIL, CLEREK & SYSTEM CONTROL',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0.6,
-                          color: t.primaryColor,
-                        ),
-                      ),
-                    ),
-                    Text(
-                      jamStr,
-                      style: gayaAngka(const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900)),
-                    ),
-                  ],
+                  ),
                 ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _AuditKpiChip(
-                        tema: t,
-                        label: 'TOTAL STRUK',
-                        value: '${widget.daftarTransaksi.length}',
-                        color: t.primaryColor,
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          AnimatedBuilder(
+                            animation: _pulseCtrl,
+                            builder: (_, __) {
+                              final v = _pulseCtrl.value;
+                              return Container(
+                                width: 10,
+                                height: 10,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: t.successColor,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: t.successColor.withAlpha(((1 - v) * 180).round()),
+                                      blurRadius: 6 + 6 * v,
+                                      spreadRadius: 1 + 2 * v,
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'AUDIT & SYSTEM CONTROL',
+                              style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900, letterSpacing: 0.7, color: t.primaryColor),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(color: t.inputColor, borderRadius: BorderRadius.circular(20)),
+                            child: Text(jamStr, style: gayaAngka(const TextStyle(fontSize: 11, fontWeight: FontWeight.w800))),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _AuditKpiChip(
-                        tema: t,
-                        label: 'CLEREK PENDING',
-                        value: '$pendingClerek Shift',
-                        color: pendingClerek > 0 ? t.warningColor : t.successColor,
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(child: _AuditTile(tema: t, title: 'STRUK', value: '${widget.daftarTransaksi.length}', accent: t.primaryColor)),
+                          const SizedBox(width: 7),
+                          Expanded(child: _AuditTile(tema: t, title: 'CLEREK', value: '$pendingClerek Pending', accent: pendingClerek > 0 ? t.warningColor : t.successColor)),
+                          const SizedBox(width: 7),
+                          Expanded(child: _AuditTile(tema: t, title: 'SDM', value: '${widget.daftarStaff.where((s) => s.aktif).length} Aktif', accent: t.accentColor)),
+                        ],
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _AuditKpiChip(
-                        tema: t,
-                        label: 'SDM AKTIF',
-                        value: '${widget.daftarStaff.where((s) => s.aktif).length} Akun',
-                        color: t.accentColor,
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -320,20 +275,21 @@ class _SisAuditSystemViewState extends State<SisAuditSystemView>
           height: 36,
           child: ListView(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
             children: [
-              for (final entry in const [
+              for (final item in const [
                 (0, 'Audit Struk'),
-                (1, 'Shift & Clerek'),
+                (1, 'Clerek Shift'),
                 (2, 'SDM & PIN'),
-                (3, 'Sistem & Backup'),
+                (3, 'Sistem'),
               ])
                 Padding(
                   padding: const EdgeInsets.only(right: 6),
-                  child: ChoiceChip(
-                    label: Text(entry.$2, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
-                    selected: _subTab == entry.$1,
-                    onSelected: (_) => setState(() => _subTab = entry.$1),
+                  child: _AuditPill(
+                    label: item.$2,
+                    selected: _subTab == item.$1,
+                    color: t.primaryColor,
+                    onTap: () => setState(() => _subTab = item.$1),
                   ),
                 ),
             ],
@@ -341,20 +297,20 @@ class _SisAuditSystemViewState extends State<SisAuditSystemView>
         ),
         const SizedBox(height: 4),
         Expanded(
-          child: _subTab == 0
-              ? _buildAuditStruk(t)
-              : (_subTab == 1
-                  ? _buildAuditShift(t)
-                  : (_subTab == 2 ? _buildSdmTab(t) : _buildSistemTab(t))),
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 240),
+            child: _subTab == 0
+                ? _buildStruk(t)
+                : (_subTab == 1 ? _buildShift(t) : (_subTab == 2 ? _buildSdm(t) : _buildSistem(t))),
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildAuditStruk(AppThemeConfig t) {
+  Widget _buildStruk(AppThemeConfig t) {
     final q = _cariStrukCtrl.text.trim().toLowerCase();
-    final sorted = [...widget.daftarTransaksi]
-      ..sort((a, b) => b.tanggal.compareTo(a.tanggal));
+    final sorted = [...widget.daftarTransaksi]..sort((a, b) => b.tanggal.compareTo(a.tanggal));
     final list = sorted.where((trx) {
       if (q.isEmpty) return true;
       return trx.nomorStruk.toLowerCase().contains(q) ||
@@ -363,149 +319,110 @@ class _SisAuditSystemViewState extends State<SisAuditSystemView>
     }).toList();
 
     return Column(
+      key: const ValueKey('aud_struk'),
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
           child: TextField(
             controller: _cariStrukCtrl,
             onChanged: (_) => setState(() {}),
             decoration: InputDecoration(
-              hintText: 'Cari nomor struk, kasir, atau pelanggan...',
-              prefixIcon: const Icon(Icons.manage_search_rounded, size: 19),
+              hintText: 'Cari no. struk, kasir, pelanggan...',
+              prefixIcon: const Icon(Icons.manage_search_rounded, size: 18),
               isDense: true,
               filled: true,
               fillColor: t.surfaceColor,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(11)),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             ),
           ),
         ),
         Expanded(
-          child: list.isEmpty
-              ? Center(child: Text('Belum ada transaksi untuk diaudit.', style: TextStyle(color: t.textSecondary)))
-              : ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(14, 4, 14, 24),
-                  itemCount: list.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (ctx, i) {
-                    final trx = list[i];
-                    return Container(
-                      padding: const EdgeInsets.all(11),
-                      decoration: dekorasiKartu(t),
-                      child: Row(
+          child: ListView.separated(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+            itemCount: list.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemBuilder: (ctx, i) {
+              final trx = list[i];
+              return Container(
+                padding: const EdgeInsets.all(11),
+                decoration: BoxDecoration(
+                  color: t.surfaceColor,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: t.borderColor),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Text(
-                                      trx.nomorStruk,
-                                      style: gayaAngka(
-                                        const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    StatusBadge(
-                                      label: trx.statusLunas ? trx.metodeBayar : 'KASBON',
-                                      color: trx.statusLunas ? t.successColor : t.warningColor,
-                                    ),
-                                  ],
-                                ),
-                                Text(
-                                  '${formatTanggalWaktu(trx.tanggal)} • ${trx.namaKasir}',
-                                  style: TextStyle(fontSize: 10.5, color: t.textSecondary),
-                                ),
-                                Text(
-                                  formatRupiah(trx.totalBelanja),
-                                  style: gayaAngka(
-                                    TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: t.primaryColor),
-                                  ),
-                                ),
-                              ],
-                            ),
+                          Row(
+                            children: [
+                              Text(trx.nomorStruk, style: gayaAngka(const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900))),
+                              const SizedBox(width: 6),
+                              StatusBadge(label: trx.statusLunas ? trx.metodeBayar : 'KASBON', color: trx.statusLunas ? t.successColor : t.warningColor),
+                            ],
                           ),
-                          IconButton(
-                            tooltip: 'Lihat Struk',
-                            onPressed: () => widget.onLihatStruk(trx),
-                            icon: const Icon(Icons.receipt_long_rounded),
-                          ),
-                          IconButton(
-                            tooltip: 'Void Transaksi',
-                            onPressed: () => widget.onVoidTransaksi(trx),
-                            icon: Icon(Icons.block_rounded, color: t.dangerColor),
-                          ),
+                          Text('${formatTanggalWaktu(trx.tanggal)} • ${trx.namaKasir}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, color: t.textSecondary)),
+                          Text(formatRupiah(trx.totalBelanja), style: gayaAngka(TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: t.primaryColor))),
                         ],
                       ),
-                    );
-                  },
+                    ),
+                    IconButton(visualDensity: VisualDensity.compact, onPressed: () => widget.onLihatStruk(trx), icon: const Icon(Icons.receipt_long_rounded)),
+                    IconButton(visualDensity: VisualDensity.compact, onPressed: () => widget.onVoidTransaksi(trx), icon: Icon(Icons.block_rounded, color: t.dangerColor)),
+                  ],
                 ),
+              );
+            },
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildAuditShift(AppThemeConfig t) {
-    final shifts = [...widget.daftarShift]
-      ..sort((a, b) => b.waktuBuka.compareTo(a.waktuBuka));
-    if (shifts.isEmpty) {
-      return Center(child: Text('Belum ada data shift kasir.', style: TextStyle(color: t.textSecondary)));
-    }
+  Widget _buildShift(AppThemeConfig t) {
+    final shifts = [...widget.daftarShift]..sort((a, b) => b.waktuBuka.compareTo(a.waktuBuka));
     return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
+      key: const ValueKey('aud_shift'),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
       itemCount: shifts.length,
       separatorBuilder: (_, __) => const SizedBox(height: 9),
       itemBuilder: (ctx, i) {
         final sh = shifts[i];
-        final zReport = widget.mapClerekZReport[sh.id];
-        final selisih = sh.kasAktualTutup -
-            (sh.modalAwal + sh.penjualanTunai - sh.pengeluaranKas);
-
+        final z = widget.mapClerekZReport[sh.id];
+        final selisih = sh.kasAktualTutup - (sh.modalAwal + sh.penjualanTunai - sh.pengeluaranKas);
         return Container(
           padding: const EdgeInsets.all(12),
-          decoration: dekorasiKartu(t),
+          decoration: BoxDecoration(
+            color: t.surfaceColor,
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(color: t.borderColor),
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Row(
                 children: [
-                  Expanded(
-                    child: Text(
-                      sh.namaStaff,
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900),
-                    ),
-                  ),
+                  Expanded(child: Text(sh.namaStaff, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900))),
                   StatusBadge(
-                    label: sh.aktif
-                        ? 'SHIFT AKTIF'
-                        : (zReport != null ? 'Z-REPORT LOCKED' : 'PERLU CLEREK'),
-                    color: sh.aktif
-                        ? t.successColor
-                        : (zReport != null ? t.primaryColor : t.warningColor),
+                    label: sh.aktif ? 'AKTIF' : (z != null ? 'LOCKED' : 'PENDING'),
+                    color: sh.aktif ? t.successColor : (z != null ? t.primaryColor : t.warningColor),
                   ),
                 ],
               ),
               const SizedBox(height: 4),
-              Text(
-                'Buka: ${formatTanggalWaktu(sh.waktuBuka)} • Modal: ${formatRupiah(sh.modalAwal)}',
-                style: TextStyle(fontSize: 11, color: t.textSecondary),
-              ),
-              Text(
-                'Tunai: ${formatRupiah(sh.penjualanTunai)} • Non-Tunai: ${formatRupiah(sh.penjualanNonTunai)} • Selisih: ${formatRupiah(selisih)}',
-                style: gayaAngka(const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
-              ),
+              Text('Buka: ${formatTanggalWaktu(sh.waktuBuka)} • Modal ${_ringkasRp(sh.modalAwal)}', style: TextStyle(fontSize: 11, color: t.textSecondary)),
+              Text('Tunai ${_ringkasRp(sh.penjualanTunai)} • Non-Tunai ${_ringkasRp(sh.penjualanNonTunai)} • Selisih ${_ringkasRp(selisih)}', style: gayaAngka(const TextStyle(fontSize: 11, fontWeight: FontWeight.w700))),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
                 children: [
-                  if (!sh.aktif && zReport == null)
-                    FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: t.primaryColor,
-                        foregroundColor: Colors.white,
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      onPressed: () => widget.onBukaClerekBlind(
+                  if (!sh.aktif && z == null)
+                    _AuditPill(
+                      label: 'Input Clerek',
+                      selected: true,
+                      color: t.primaryColor,
+                      onTap: () => widget.onBukaClerekBlind(
                         sh,
                         LaporanClerekShift(
                           shiftId: sh.id,
@@ -523,22 +440,10 @@ class _SisAuditSystemViewState extends State<SisAuditSystemView>
                           totalItemTerjual: 0,
                         ),
                       ),
-                      icon: const Icon(Icons.fact_check_rounded, size: 15),
-                      label: const Text('Input Clerek', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
                     ),
-                  if (zReport != null) ...[
-                    OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
-                      onPressed: () => widget.onLihatZReport(zReport),
-                      icon: const Icon(Icons.visibility_rounded, size: 15),
-                      label: const Text('Z-Report', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
-                    ),
-                    OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
-                      onPressed: () => widget.onUnduhPdfClerek(zReport),
-                      icon: const Icon(Icons.picture_as_pdf_rounded, size: 15),
-                      label: const Text('PDF', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
-                    ),
+                  if (z != null) ...[
+                    _AuditPill(label: 'Z-Report', selected: false, color: t.primaryColor, onTap: () => widget.onLihatZReport(z)),
+                    _AuditPill(label: 'PDF', selected: false, color: t.accentColor, onTap: () => widget.onUnduhPdfClerek(z)),
                   ],
                 ],
               ),
@@ -549,72 +454,49 @@ class _SisAuditSystemViewState extends State<SisAuditSystemView>
     );
   }
 
-  Widget _buildSdmTab(AppThemeConfig t) {
+  Widget _buildSdm(AppThemeConfig t) {
     return Column(
+      key: const ValueKey('aud_sdm'),
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
           child: Row(
             children: [
-              const Expanded(
-                child: Text(
-                  'Daftar Akun SDM & PIN Akses',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900),
-                ),
-              ),
+              const Expanded(child: Text('Akun & PIN SDM', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w900))),
               FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: t.primaryColor,
-                  foregroundColor: Colors.white,
-                  visualDensity: VisualDensity.compact,
-                ),
+                style: FilledButton.styleFrom(backgroundColor: t.primaryColor, foregroundColor: Colors.white),
                 onPressed: () => widget.onBukaFormStaff(),
-                icon: const Icon(Icons.person_add_rounded, size: 16),
-                label: const Text('Tambah SDM', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800)),
+                icon: const Icon(Icons.person_add_rounded, size: 17),
+                label: const Text('Tambah', style: TextStyle(fontWeight: FontWeight.w800)),
               ),
             ],
           ),
         ),
         Expanded(
           child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(14, 4, 14, 24),
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
             itemCount: widget.daftarStaff.length,
             separatorBuilder: (_, __) => const SizedBox(height: 8),
             itemBuilder: (ctx, i) {
               final st = widget.daftarStaff[i];
               return Container(
                 padding: const EdgeInsets.all(11),
-                decoration: dekorasiKartu(t),
+                decoration: BoxDecoration(color: t.surfaceColor, borderRadius: BorderRadius.circular(14), border: Border.all(color: t.borderColor)),
                 child: Row(
                   children: [
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            '${st.nama} (NIK ${st.id})',
-                            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900),
-                          ),
-                          Text(
-                            'Role: ${st.isStoreSystem ? "Store System / Manager" : "Kasir POS"} • PIN: ${st.pin}',
-                            style: TextStyle(fontSize: 11, color: t.textSecondary),
-                          ),
+                          Text('${st.nama} (${st.id})', style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900)),
+                          Text('${st.isStoreSystem ? "Store System" : "Kasir"} • PIN ${st.pin}', style: TextStyle(fontSize: 11, color: t.textSecondary)),
                         ],
                       ),
                     ),
-                    StatusBadge(
-                      label: st.aktif ? 'AKTIF' : 'NONAKTIF',
-                      color: st.aktif ? t.successColor : t.dangerColor,
-                    ),
-                    IconButton(
-                      onPressed: () => widget.onBukaFormStaff(editStaff: st),
-                      icon: const Icon(Icons.edit_outlined, size: 18),
-                    ),
+                    StatusBadge(label: st.aktif ? 'AKTIF' : 'OFF', color: st.aktif ? t.successColor : t.dangerColor),
+                    IconButton(visualDensity: VisualDensity.compact, onPressed: () => widget.onBukaFormStaff(editStaff: st), icon: const Icon(Icons.edit_outlined, size: 18)),
                     if (st.id != widget.currentStaff.id)
-                      IconButton(
-                        onPressed: () => widget.onHapusStaff(st.id),
-                        icon: Icon(Icons.delete_outline_rounded, size: 18, color: t.dangerColor),
-                      ),
+                      IconButton(visualDensity: VisualDensity.compact, onPressed: () => widget.onHapusStaff(st.id), icon: Icon(Icons.delete_outline_rounded, size: 18, color: t.dangerColor)),
                   ],
                 ),
               );
@@ -625,68 +507,44 @@ class _SisAuditSystemViewState extends State<SisAuditSystemView>
     );
   }
 
-  Widget _buildSistemTab(AppThemeConfig t) {
+  Widget _buildSistem(AppThemeConfig t) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
+      key: const ValueKey('aud_sys'),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
       children: [
         Container(
           padding: const EdgeInsets.all(13),
-          decoration: dekorasiKartu(t),
+          decoration: BoxDecoration(color: t.surfaceColor, borderRadius: BorderRadius.circular(16), border: Border.all(color: t.borderColor)),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('Identitas Toko & Pajak', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w900)),
-              const SizedBox(height: 6),
-              Text(widget.toko.namaToko, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800)),
-              Text(widget.toko.alamatToko, style: TextStyle(fontSize: 11, color: t.textSecondary)),
-              Text('Pajak PPN: ${widget.toko.persenPajak}%', style: TextStyle(fontSize: 11, color: t.textSecondary)),
+              Text(widget.toko.namaToko, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 4),
+              Text(widget.toko.alamatToko, style: TextStyle(fontSize: 11.5, color: t.textSecondary)),
+              Text('Pajak PPN: ${widget.toko.persenPajak}%', style: TextStyle(fontSize: 11.5, color: t.textSecondary)),
               const SizedBox(height: 10),
               FilledButton.icon(
                 style: FilledButton.styleFrom(backgroundColor: t.primaryColor, foregroundColor: Colors.white),
                 onPressed: _dialogEditToko,
-                icon: const Icon(Icons.edit_location_alt_rounded, size: 17),
-                label: const Text('Ubah Profil & Pajak Toko', style: TextStyle(fontWeight: FontWeight.w800)),
+                icon: const Icon(Icons.storefront_rounded, size: 17),
+                label: const Text('Edit Profil Toko', style: TextStyle(fontWeight: FontWeight.w800)),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
         Container(
           padding: const EdgeInsets.all(13),
-          decoration: dekorasiKartu(t),
+          decoration: BoxDecoration(color: t.surfaceColor, borderRadius: BorderRadius.circular(16), border: Border.all(color: t.borderColor)),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('Tema Visual Aplikasi', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w900)),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final tm in [widget.tema])
-                    ChoiceChip(
-                      label: Text(tm.nama, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800)),
-                      selected: tm.id == t.id,
-                      onSelected: (_) => widget.onGantiTema(tm.id),
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(13),
-          decoration: dekorasiKartu(t),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('Backup, Restore & Sesi', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w900)),
+              const Text('Backup & Restore Data', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w900)),
               const SizedBox(height: 8),
               OutlinedButton.icon(
                 onPressed: _dialogBackupRestore,
-                icon: const Icon(Icons.backup_rounded, size: 17),
-                label: const Text('Backup / Restore JSON', style: TextStyle(fontWeight: FontWeight.w800)),
+                icon: const Icon(Icons.data_object_rounded, size: 17),
+                label: const Text('Export / Restore JSON', style: TextStyle(fontWeight: FontWeight.w800)),
               ),
             ],
           ),
@@ -696,44 +554,65 @@ class _SisAuditSystemViewState extends State<SisAuditSystemView>
   }
 }
 
-class _AuditKpiChip extends StatelessWidget {
-  final AppThemeConfig tema;
+class _AuditPill extends StatelessWidget {
   final String label;
-  final String value;
+  final bool selected;
   final Color color;
+  final VoidCallback onTap;
 
-  const _AuditKpiChip({
-    required this.tema,
-    required this.label,
-    required this.value,
-    required this.color,
-  });
+  const _AuditPill({required this.label, required this.selected, required this.color, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: selected ? color : t.colorScheme.surfaceContainerHighest.withAlpha(110),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: selected ? color : t.dividerColor),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: selected ? Colors.white : t.colorScheme.onSurface),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AuditTile extends StatelessWidget {
+  final AppThemeConfig tema;
+  final String title;
+  final String value;
+  final Color accent;
+
+  const _AuditTile({required this.tema, required this.title, required this.value, required this.accent});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
       decoration: BoxDecoration(
-        color: tema.inputColor,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: tema.borderColor),
+        color: tema.surfaceColor.withAlpha(225),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: accent.withAlpha(90)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.w800, color: tema.textSecondary),
-          ),
+          Text(title, maxLines: 1, softWrap: false, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.w800, color: tema.textSecondary)),
           const SizedBox(height: 2),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: gayaAngka(TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900, color: color)),
-          ),
+          Text(value, maxLines: 1, softWrap: false, overflow: TextOverflow.ellipsis, style: gayaAngka(TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900, color: accent))),
         ],
       ),
     );
