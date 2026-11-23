@@ -661,29 +661,56 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
       _busyAdjust = true;
     });
 
-    final postedBase = _syncDoc(doc, st: KksoStatus.posted).copyWith(
+    final syncedInput = _syncDoc(doc, st: KksoStatus.posted);
+    final postedBase = syncedInput.copyWith(
       disetujuiOleh: widget.currentStaff?.nama ?? 'Owner / SIS',
       pinSisTerverifikasi: true,
       tanggalPosted: DateTime.now(),
       alasan: doc.alasan ?? 'Fixed Adjust Stock Opname',
-      catatan: _editCatatanCtrl.text.trim().isNotEmpty ? _editCatatanCtrl.text.trim() : (doc.editLogs.isNotEmpty ? doc.editLogs.last : 'PIN SIS Valid'),
+      catatan: _editCatatanCtrl.text.trim().isNotEmpty
+          ? _editCatatanCtrl.text.trim()
+          : (doc.editLogs.isNotEmpty ? doc.editLogs.last : 'PIN SIS Valid'),
     );
 
+    final updatedItems = <KksoItem>[];
     for (final it in postedBase.items) {
       final f = it.stokFisik;
-      if (f != null && f != it.stokSistem) {
-        final delta = f - it.stokSistem;
+      if (f != null && (f - it.stokSistem).abs() > 0.0001) {
+        final deltaNum = f - it.stokSistem;
         final prd = widget.daftarProduk.firstWhere(
           (p) => p.id == it.produkId,
-          orElse: () => Produk(id: it.produkId, nama: it.namaProduk, kodeSku: it.kodeSku, kategori: it.kategori, satuan: it.satuan, hargaModal: it.hargaModal, hargaJual: it.hargaJual, stok: it.stokSistem),
+          orElse: () => Produk(
+            id: it.produkId,
+            nama: it.namaProduk,
+            kodeSku: it.kodeSku,
+            kategori: it.kategori,
+            satuan: it.satuan,
+            hargaModal: it.hargaModal,
+            hargaJual: it.hargaJual,
+            stok: it.stokSistem,
+          ),
         );
-        widget.onSimpanProduk(prd.copyWith(stok: f), false);
-        widget.onMutasiStok(produk: prd, tipe: delta > 0 ? 'Masuk' : 'Keluar', perubahan: delta.abs(), keterangan: 'KKSO ${postedBase.id} FIXED ADJUST (${it.stokSistem} -> $f)');
+        final stokFinal = f.round();
+        final produkBaru = prd.copyWith(stok: stokFinal);
+        widget.onSimpanProduk(produkBaru, false);
+        widget.onMutasiStok(
+          produk: produkBaru,
+          tipe: deltaNum > 0 ? 'Masuk' : 'Keluar',
+          perubahan: deltaNum.abs().round(),
+          keterangan: 'KKSO ${postedBase.id} FIXED ADJUST (${it.stokSistem} -> $f)',
+        );
+        updatedItems.add(it.copyWith(stokFisik: f));
+      } else {
+        updatedItems.add(it);
       }
     }
 
-    final pdfBytes = await generateKksoBeritaAcaraPdf(postedBase, widget.toko ?? PengaturanToko.defaultAwal());
-    final finalDoc = postedBase.copyWith(pdfBase64: base64Encode(pdfBytes));
+    final postedDoc = postedBase.copyWith(items: updatedItems);
+    final pdfBytes = await generateKksoBeritaAcaraPdf(
+      postedDoc,
+      widget.toko ?? PengaturanToko.defaultAwal(),
+    );
+    final finalDoc = postedDoc.copyWith(pdfBase64: base64Encode(pdfBytes));
     widget.onSimpanKkso([finalDoc, ...widget.daftarKkso.where((d) => d.id != finalDoc.id)]);
 
     setState(() {
@@ -694,7 +721,6 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
       _pinSisCtrl.clear();
     });
   }
-
   // ignore: unused_element
   Widget _buildKksoFlow(AppThemeConfig t, KksoDocument doc) {
     if (_kksoStep == 1) return _buildStep1(doc);
@@ -1061,7 +1087,7 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          '-$minusPcs pcs',
+                          '-${minusPcs.abs()} pcs',
                           style: gayaAngka(const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFFB91C1C))),
                         ),
                         Text(
@@ -1327,8 +1353,10 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 4,
+                    alignment: WrapAlignment.spaceBetween,
                     children: [
                       Text(
                         'Diposting oleh $postedBy • $tglLabel • $jamLabel',
