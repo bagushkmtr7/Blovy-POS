@@ -873,38 +873,7 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
   }
 
   Widget _buildStep6(KksoDocument doc) {
-    if (!_isOwnerOrSis) {
-      return Scaffold(
-        key: const ValueKey('step6_restricted'),
-        backgroundColor: const Color(0xFFF5F7FA),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.lock_outline_rounded, size: 44, color: Colors.black45),
-                const SizedBox(height: 10),
-                const Text(
-                  'Final Stock Opname Result Report hanya tersedia untuk Owner.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 12),
-                FilledButton(
-                  onPressed: () => setState(() {
-                    _aktifKkso = null;
-                    _step6Doc = null;
-                    _kksoStep = 0;
-                  }),
-                  child: const Text('Kembali'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
+    
 
     final reportDoc = _step6Doc ?? doc;
     final diffItems = reportDoc.items.where((it) {
@@ -2132,6 +2101,7 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
     );
   }
 
+  // ignore: unused_element
   bool get _isOwnerOrSis {
     final role = (widget.currentStaff?.role.toString() ?? '').toLowerCase();
     return role.contains('owner') || role.contains('sis') || role.contains('admin') || role.isEmpty;
@@ -2497,12 +2467,7 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
 
   void _bukaModalOtorisasiSis(KksoDocument doc) {
     if (doc.isLocked) return;
-    if (!_isOwnerOrSis) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Hanya role SIS / Owner yang dapat menyetujui & posting.')),
-      );
-      return;
-    }
+    
 
     final itemsTerupdate = doc.items.map((it) {
       if (_doubleCountMap.containsKey(it.produkId)) {
@@ -2795,36 +2760,7 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
 
   // ignore: unused_element
   Widget _buildKksoReviewOwner(AppThemeConfig t, KksoDocument doc) {
-    if (!_isOwnerOrSis) {
-      return Center(
-        key: const ValueKey('kkso_review_denied'),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.lock_person_rounded, size: 48, color: _kSoGreen),
-              const SizedBox(height: 10),
-              const Text(
-                'Menunggu Review Owner / SIS',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: _kSoGreen),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Dokumen ${doc.id} sudah selesai dihitung oleh ${doc.petugasHitung}. Stok sistem hanya dapat dilihat oleh SIS / Owner.',
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 12, color: Colors.black54),
-              ),
-              const SizedBox(height: 14),
-              OutlinedButton(
-                onPressed: () => setState(() => _aktifKkso = null),
-                child: const Text('Kembali ke Menu KKSO'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
+    
 
     final itemsPreview = doc.items.map((it) {
       if (_doubleCountMap.containsKey(it.produkId)) {
@@ -3114,6 +3050,8 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
 
   @override
   Widget build(BuildContext context) {
+    if (_kksoStep == 6 && _aktifKkso != null) return _buildStep6(_aktifKkso!);
+
     final t = widget.tema;
     final activeDoc = _aktifKkso;
     if (_modeSub == 1 && activeDoc != null && _kksoStep == 4) {
