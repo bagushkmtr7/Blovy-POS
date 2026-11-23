@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:async';
 import '../models/pos_models.dart';
+import 'realtime_sync_service.dart';
 
 class StorageService {
   static const String _kToko = 'pos_pro_toko';
@@ -168,7 +170,9 @@ class StorageService {
 
   Future<void> simpanToko(PengaturanToko toko) async {
     final p = await SharedPreferences.getInstance();
-    await p.setString(_kToko, jsonEncode(toko.toMap()));
+    final map = toko.toMap();
+    await p.setString(_kToko, jsonEncode(map));
+    unawaited(RealtimeSyncService.instance.pushCollection(_kToko, map));
   }
 
   Future<List<AkunStaff>> muatStaff() async {
@@ -179,14 +183,18 @@ class StorageService {
       await simpanStaff(def);
       return def;
     }
-    return (jsonDecode(raw) as List)
+    final list = (jsonDecode(raw) as List)
         .map((e) => AkunStaff.fromMap(e as Map<String, dynamic>))
         .toList();
+    await simpanStaff(list);
+    return list;
   }
 
   Future<void> simpanStaff(List<AkunStaff> list) async {
     final p = await SharedPreferences.getInstance();
-    await p.setString(_kStaff, jsonEncode(list.map((e) => e.toMap()).toList()));
+    final data = list.map((e) => e.toMap()).toList();
+    await p.setString(_kStaff, jsonEncode(data));
+    unawaited(RealtimeSyncService.instance.pushCollection(_kStaff, data));
   }
 
   Future<List<ShiftKasir>> muatShift() async {
@@ -200,7 +208,9 @@ class StorageService {
 
   Future<void> simpanShift(List<ShiftKasir> list) async {
     final p = await SharedPreferences.getInstance();
-    await p.setString(_kShift, jsonEncode(list.map((e) => e.toMap()).toList()));
+    final data = list.map((e) => e.toMap()).toList();
+    await p.setString(_kShift, jsonEncode(data));
+    unawaited(RealtimeSyncService.instance.pushCollection(_kShift, data));
   }
 
   Future<List<Produk>> muatProduk() async {
@@ -218,8 +228,9 @@ class StorageService {
 
   Future<void> simpanProduk(List<Produk> list) async {
     final p = await SharedPreferences.getInstance();
-    await p.setString(
-        _kProduk, jsonEncode(list.map((e) => e.toMap()).toList()));
+    final data = list.map((e) => e.toMap()).toList();
+    await p.setString(_kProduk, jsonEncode(data));
+    unawaited(RealtimeSyncService.instance.pushCollection(_kProduk, data));
   }
 
   Future<List<LogStok>> muatLogStok() async {
@@ -233,8 +244,9 @@ class StorageService {
 
   Future<void> simpanLogStok(List<LogStok> list) async {
     final p = await SharedPreferences.getInstance();
-    await p.setString(
-        _kLogStok, jsonEncode(list.map((e) => e.toMap()).toList()));
+    final data = list.map((e) => e.toMap()).toList();
+    await p.setString(_kLogStok, jsonEncode(data));
+    unawaited(RealtimeSyncService.instance.pushCollection(_kLogStok, data));
   }
 
   Future<List<TransaksiPos>> muatTransaksi() async {
@@ -248,8 +260,9 @@ class StorageService {
 
   Future<void> simpanTransaksi(List<TransaksiPos> list) async {
     final p = await SharedPreferences.getInstance();
-    await p.setString(
-        _kTransaksi, jsonEncode(list.map((e) => e.toMap()).toList()));
+    final data = list.map((e) => e.toMap()).toList();
+    await p.setString(_kTransaksi, jsonEncode(data));
+    unawaited(RealtimeSyncService.instance.pushCollection(_kTransaksi, data));
   }
 
   Future<List<PengeluaranToko>> muatPengeluaran() async {
@@ -263,8 +276,9 @@ class StorageService {
 
   Future<void> simpanPengeluaran(List<PengeluaranToko> list) async {
     final p = await SharedPreferences.getInstance();
-    await p.setString(
-        _kPengeluaran, jsonEncode(list.map((e) => e.toMap()).toList()));
+    final data = list.map((e) => e.toMap()).toList();
+    await p.setString(_kPengeluaran, jsonEncode(data));
+    unawaited(RealtimeSyncService.instance.pushCollection(_kPengeluaran, data));
   }
 
   Future<List<MemberPelanggan>> muatMember() async {
@@ -282,8 +296,9 @@ class StorageService {
 
   Future<void> simpanMember(List<MemberPelanggan> list) async {
     final p = await SharedPreferences.getInstance();
-    await p.setString(
-        _kMember, jsonEncode(list.map((e) => e.toMap()).toList()));
+    final data = list.map((e) => e.toMap()).toList();
+    await p.setString(_kMember, jsonEncode(data));
+    unawaited(RealtimeSyncService.instance.pushCollection(_kMember, data));
   }
 
   Future<List<PromoVoucher>> muatPromo() async {
@@ -301,7 +316,9 @@ class StorageService {
 
   Future<void> simpanPromo(List<PromoVoucher> list) async {
     final p = await SharedPreferences.getInstance();
-    await p.setString(_kPromo, jsonEncode(list.map((e) => e.toMap()).toList()));
+    final data = list.map((e) => e.toMap()).toList();
+    await p.setString(_kPromo, jsonEncode(data));
+    unawaited(RealtimeSyncService.instance.pushCollection(_kPromo, data));
   }
 
   Future<List<KeranjangTertahan>> muatHold() async {

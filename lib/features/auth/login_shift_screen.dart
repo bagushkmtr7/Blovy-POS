@@ -5,6 +5,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/pos_models.dart';
 import '../../widgets/pos_components.dart';
+import '../../widgets/server_sync_badge.dart';
 
 class LoginShiftScreen extends StatefulWidget {
   final AppThemeConfig tema;
@@ -291,6 +292,8 @@ class _LoginShiftScreenState extends State<LoginShiftScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    ServerSyncBadge(tema: t),
+                    const SizedBox(height: 10),
                     // Header Terminal POS Komersial + Jam Real-Time
                     Container(
                       padding: const EdgeInsets.all(14),

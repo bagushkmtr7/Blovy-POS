@@ -41,15 +41,22 @@ class AkunStaff {
         'aktif': aktif,
       };
 
-  factory AkunStaff.fromMap(Map<String, dynamic> m) => AkunStaff(
-        id: m['id'] as String,
-        nama: m['nama'] as String,
-        pin: m['pin'] as String,
-        role: (m['role'] as String?) == 'superAdmin'
-            ? RoleStaff.storeSystem
-            : RoleStaff.kasir,
-        aktif: (m['aktif'] as bool?) ?? true,
-      );
+  factory AkunStaff.fromMap(Map<String, dynamic> m) {
+    final rawRole = (m['role'] as String?) ?? '';
+    final namaLower = (m['nama'] as String? ?? '').toLowerCase();
+    final isSis = rawRole == 'storeSystem' ||
+        rawRole == 'superAdmin' ||
+        rawRole == 'sis' ||
+        (m['id'] as String?) == 'staff_sis' ||
+        namaLower.contains('store information system');
+    return AkunStaff(
+      id: m['id'] as String,
+      nama: m['nama'] as String,
+      pin: m['pin'] as String,
+      role: isSis ? RoleStaff.storeSystem : RoleStaff.kasir,
+      aktif: (m['aktif'] as bool?) ?? true,
+    );
+  }
 }
 
 class ShiftKasir {

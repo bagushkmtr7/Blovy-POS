@@ -4,6 +4,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/pos_models.dart';
 import '../../services/storage_service.dart';
+import '../../services/realtime_sync_service.dart';
 import '../../widgets/struk_sheet.dart';
 import '../sis/store_information_system_shell.dart';
 import '../auth/login_shift_screen.dart';
@@ -45,7 +46,21 @@ class _PosMainShellState extends State<PosMainShell> {
   @override
   void initState() {
     super.initState();
-    _muatSemuaData();
+    RealtimeSyncService.instance.onRemoteDataApplied = _muatSemuaData;
+    _initRealtimeDanData();
+  }
+
+  Future<void> _initRealtimeDanData() async {
+    await _muatSemuaData();
+    await RealtimeSyncService.instance.init();
+  }
+
+  @override
+  void dispose() {
+    if (RealtimeSyncService.instance.onRemoteDataApplied == _muatSemuaData) {
+      RealtimeSyncService.instance.onRemoteDataApplied = null;
+    }
+    super.dispose();
   }
 
   Future<void> _muatSemuaData() async {
