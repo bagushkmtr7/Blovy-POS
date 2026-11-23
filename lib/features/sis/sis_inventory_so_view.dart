@@ -692,11 +692,12 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
         );
         final stokFinal = f.round();
         final produkBaru = prd.copyWith(stok: stokFinal);
+        final deltaBulat = deltaNum.round();
         widget.onSimpanProduk(produkBaru, false);
         widget.onMutasiStok(
           produk: produkBaru,
-          tipe: deltaNum > 0 ? 'Masuk' : 'Keluar',
-          perubahan: deltaNum.abs().round(),
+          tipe: deltaBulat > 0 ? 'Masuk' : 'Keluar',
+          perubahan: deltaBulat,
           keterangan: 'KKSO ${postedBase.id} FIXED ADJUST (${it.stokSistem} -> $f)',
         );
         updatedItems.add(it.copyWith(stokFisik: f));
@@ -1809,7 +1810,7 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
             ),
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
                 children: [
                   Container(
                     padding: const EdgeInsets.all(14),
@@ -3807,7 +3808,7 @@ class _PerbaikiKeypad extends StatelessWidget {
     final isDot = keyLabel == '.';
 
     return Container(
-      height: 54,
+      height: 48,
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),

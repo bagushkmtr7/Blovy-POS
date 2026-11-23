@@ -481,7 +481,8 @@ class _PosMainShellState extends State<PosMainShell> {
   }) {
     final idx = _daftarProduk.indexWhere((p) => p.id == produk.id);
     if (idx == -1) return;
-    final stokBaru = (_daftarProduk[idx].stok + perubahan).clamp(0, 999999);
+    final deltaEfektif = (tipe.toLowerCase() == 'keluar' && perubahan > 0) ? -perubahan : perubahan;
+    final stokBaru = (_daftarProduk[idx].stok + deltaEfektif).clamp(0, 999999);
     setState(() {
       _daftarProduk[idx] = _daftarProduk[idx].copyWith(stok: stokBaru);
       _daftarLogStok.insert(
