@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import '../core/theme/app_theme.dart';
 import '../services/realtime_sync_service.dart';
@@ -10,57 +9,85 @@ class ServerSyncBadge extends StatelessWidget {
   void _bukaDialogServer(BuildContext context) {
     final sync = RealtimeSyncService.instance;
     final ctrl = TextEditingController(text: sync.serverUrl);
+    String? infoTest;
+    bool loading = false;
+
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text(
-          'Server SQLite Pusat',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'Masukkan alamat server SQLite Termux (IP lokal Wi-Fi atau domain Cloudflare Tunnel) agar APK dan browser tersinkron real-time.',
-                style: TextStyle(fontSize: 12, height: 1.35),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: ctrl,
-                decoration: const InputDecoration(
-                  labelText: 'URL Server SQLite',
-                  hintText: 'http://192.168.1.10:8085',
-                  border: OutlineInputBorder(),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          title: const Text(
+            'Server SQLite Pusat',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Jika APK & Termux di 1 HP yang sama, isi: http://127.0.0.1:8085\nJika beda HP dalam 1 Wi-Fi, isi IP HP Server (misal http://192.168.1.10:8085).',
+                  style: TextStyle(fontSize: 12, height: 1.35),
                 ),
-              ),
-              const SizedBox(height: 8),
-              ValueListenableBuilder(
-                valueListenable: sync.pendingCount,
-                builder: (_, pending, __) => Text(
-                  pending != 0
-                      ? 'Antrean offline tertunda: $pending data belum terkirim'
-                      : 'Semua data sudah tersinkron ke pusat.',
-                  style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: ctrl,
+                  decoration: const InputDecoration(
+                    labelText: 'URL Server SQLite',
+                    hintText: 'http://127.0.0.1:8085',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 8),
+                ValueListenableBuilder(
+                  valueListenable: sync.pendingCount,
+                  builder: (_, pending, __) => Text(
+                    pending != 0
+                        ? 'Antrean offline tertunda: $pending data belum terkirim'
+                        : 'Semua data sudah tersinkron ke pusat.',
+                    style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700),
+                  ),
+                ),
+                if (infoTest != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    infoTest!,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: sync.isOnline.value ? Colors.green.shade700 : Colors.red.shade700,
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Tutup'),
+            ),
+            OutlinedButton(
+              onPressed: loading
+                  ? null
+                  : () async {
+                      setDlg(() {
+                        loading = true;
+                        infoTest = 'Menghubungkan & mengirim antrean...';
+                      });
+                      await sync.setServerUrl(ctrl.text);
+                      await sync.flushQueue();
+                      setDlg(() {
+                        loading = false;
+                        infoTest = sync.isOnline.value
+                            ? 'Berhasil terhubung & sinkron ke SQLite!'
+                            : 'Gagal terhubung ke ${sync.serverUrl}. Pastikan server.py aktif.';
+                      });
+                    },
+              child: Text(loading ? 'Menyinkronkan...' : 'Simpan & Sinkronkan'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Batal'),
-          ),
-          OutlinedButton(
-            onPressed: () async {
-              await sync.setServerUrl(ctrl.text);
-              if (ctx.mounted) Navigator.pop(ctx);
-            },
-            child: const Text('Simpan & Sinkronkan'),
-          ),
-        ],
       ),
     );
   }
@@ -78,7 +105,7 @@ class ServerSyncBadge extends StatelessWidget {
             final label = online
                 ? 'ONLINE - Realtime SQLite Terhubung'
                 : (pending != 0
-                    ? 'OFFLINE - $pending antrean tersimpan lokal'
+                    ? 'OFFLINE - $pending antrean tertunda (Ketuk kirim)'
                     : 'OFFLINE - Mode Lokal (Ketuk atur server)');
             return InkWell(
               borderRadius: BorderRadius.circular(10),

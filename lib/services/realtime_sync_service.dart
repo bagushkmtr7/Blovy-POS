@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-class RealtimeSyncService {
+class RealtimeSyncService with WidgetsBindingObserver {
   RealtimeSyncService._();
   static final RealtimeSyncService instance = RealtimeSyncService._();
 
@@ -22,6 +23,7 @@ class RealtimeSyncService {
   WebSocketChannel? _channel;
   Timer? _reconnectTimer;
   Timer? _pingTimer;
+  Timer? _queueWatchdog;
   bool _started = false;
   bool _flushing = false;
 
@@ -41,8 +43,26 @@ class RealtimeSyncService {
     await _updatePendingCount();
     if (!_started) {
       _started = true;
+      WidgetsBinding.instance.addObserver(this);
+      _startQueueWatchdog();
       unawaited(connectAndPull());
     }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(connectAndPull());
+    }
+  }
+
+  void _startQueueWatchdog() {
+    _queueWatchdog?.cancel();
+    _queueWatchdog = Timer.periodic(const Duration(milliseconds: 1500), (_) {
+      if (!isOnline.value || pendingCount.value != 0) {
+        unawaited(connectAndPull());
+      }
+    });
   }
 
   String _normalizeUrl(String raw) {
@@ -76,7 +96,9 @@ class RealtimeSyncService {
   Future<void> connectAndPull() async {
     await flushQueue();
     await pullInitialState();
-    _connectWs();
+    if (_channel == null) {
+      _connectWs();
+    }
   }
 
   void _connectWs() {
@@ -99,6 +121,8 @@ class RealtimeSyncService {
               final col = decoded['collection'] as String?;
               final data = decoded['data'];
               if (col != null && data != null) {
+                final pending = await _loadPendingMap();
+                if (pending.containsKey(col)) return;
                 final p = await SharedPreferences.getInstance();
                 await p.setString(col, jsonEncode(data));
                 if (onRemoteDataApplied != null) {
@@ -110,16 +134,18 @@ class RealtimeSyncService {
         },
         onError: (_) {
           isOnline.value = false;
+          _channel = null;
           _scheduleReconnect();
         },
         onDone: () {
           isOnline.value = false;
+          _channel = null;
           _scheduleReconnect();
         },
         cancelOnError: true,
       );
 
-      _pingTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      _pingTimer = Timer.periodic(const Duration(seconds: 5), (_) {
         try {
           _channel?.sink.add('ping');
         } catch (_) {
@@ -130,6 +156,7 @@ class RealtimeSyncService {
       });
     } catch (_) {
       isOnline.value = false;
+      _channel = null;
       _scheduleReconnect();
     }
   }
@@ -145,7 +172,7 @@ class RealtimeSyncService {
 
   void _scheduleReconnect() {
     _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(const Duration(seconds: 5), () {
+    _reconnectTimer = Timer(const Duration(milliseconds: 1500), () {
       connectAndPull();
     });
   }
@@ -154,7 +181,7 @@ class RealtimeSyncService {
     try {
       final res = await http
           .get(Uri.parse('$_serverUrl/api/state'))
-          .timeout(const Duration(seconds: 5));
+          .timeout(const Duration(seconds: 2));
       if (res.statusCode == 200) {
         isOnline.value = true;
         final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -168,8 +195,11 @@ class RealtimeSyncService {
             final val = entry.value as Map<String, dynamic>;
             final data = val['data'];
             if (data != null) {
-              await p.setString(entry.key, jsonEncode(data));
-              changed = true;
+              final encoded = jsonEncode(data);
+              if (p.getString(entry.key) != encoded) {
+                await p.setString(entry.key, encoded);
+                changed = true;
+              }
             }
           }
           if (changed && onRemoteDataApplied != null) {
@@ -192,15 +222,16 @@ class RealtimeSyncService {
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({
               'data': dataObject,
-              ' updated_at': DateTime.now().toIso8601String(),
+              'updated_at': DateTime.now().toIso8601String(),
             }),
           )
-          .timeout(const Duration(seconds: 4));
+          .timeout(const Duration(seconds: 2));
 
       if (res.statusCode == 200) {
         isOnline.value = true;
         await _removeFromPending(collectionKey);
-        if (pendingCount.value > 0) {
+        if (_channel == null) _connectWs();
+        if (pendingCount.value != 0) {
           unawaited(flushQueue());
         }
         return;
@@ -259,7 +290,7 @@ class RealtimeSyncService {
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode(pending),
           )
-          .timeout(const Duration(seconds: 8));
+          .timeout(const Duration(seconds: 3));
       if (res.statusCode == 200) {
         isOnline.value = true;
         await _savePendingMap({});
