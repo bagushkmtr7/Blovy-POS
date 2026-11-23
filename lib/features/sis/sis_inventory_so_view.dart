@@ -4,6 +4,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:printing/printing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/pos_models.dart';
@@ -341,49 +342,52 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
     with TickerProviderStateMixin {
   static const Color _kSoGreen = Color(0xFF0E5A3E);
   static const Color _kSoGreenSoft = Color(0xFFE8F3EE);
+  static const Color _kSoBlue = Color(0xFF1E40AF);
+  static const String _kPinSisValid = '123456';
 
+  int _kksoStep = 0;
   KksoDocument? _aktifKkso;
-  final TextEditingController _barcodeKksoCtrl = TextEditingController();
-  final FocusNode _barcodeKksoFocus = FocusNode();
-  final Map<String, int?> _draftFisikKkso = {};
-  String? _selectedProdukIdKkso;
-  String _keypadBufferKkso = '';
-  bool _keypadReplaceNext = true;
 
-  final List<String> _daftarAlasanKkso = const [
-    'Hilang',
-    'Rusak',
-    'Expired',
-    'Salah Input',
-    'Pencurian',
-  ];
-  String _alasanTerpilihKkso = 'Hilang';
-  final TextEditingController _catatanReviewKksoCtrl = TextEditingController();
-  final TextEditingController _petugasDoubleCountCtrl = TextEditingController();
-  final Map<String, int> _doubleCountMap = {};
+  KksoJenis _step0Jenis = KksoJenis.grand;
+  final String _step0SubMode = 'Semua Area Toko';
+  String _step0Area = 'Rak Display 01';
+  final DateTime _step0Tgl = DateTime.now();
+  final TextEditingController _kksoIdCtrl = TextEditingController();
 
-  bool get _isOwnerOrSis {
-    final st = widget.currentStaff;
-    if (st == null) return true;
-    final r = st.role.name.toLowerCase();
-    return st.isStoreSystem ||
-        r.contains('owner') ||
-        r.contains('admin') ||
-        r.contains('super');
+  final Map<String, int?> _draftFisik = {};
+  final Map<String, int?> _snapEdit = {};
+  String? _fokusId;
+  String _padBuf = '';
+  bool _padReplace = true;
+  final TextEditingController _editCatatanCtrl = TextEditingController();
+
+  final TextEditingController _pinSisCtrl = TextEditingController();
+  bool _pinErr = false;
+  bool _busyAdjust = false;
+
+  String _genNoKkso([DateTime? ref]) {
+    final n = ref ?? DateTime.now();
+    final yy = (n.year % 100).toString().padLeft(2, '0');
+    final mm = n.month.toString().padLeft(2, '0');
+    final dd = n.day.toString().padLeft(2, '0');
+    final r = (n.millisecondsSinceEpoch % 900 + 100).toString();
+    return 'KKSO-$yy$mm$dd-$r';
   }
 
-  String _buatNomorKkso() {
-    final now = DateTime.now();
-    final yy = (now.year % 100).toString().padLeft(2, '0');
-    final mm = now.month.toString().padLeft(2, '0');
-    final dd = now.day.toString().padLeft(2, '0');
-    final rnd = (now.millisecondsSinceEpoch % 900 + 100).toString();
-    return 'KKSO-$yy$mm$dd-$rnd';
+  String _fmtRp(int v) {
+    final neg = v < 0 ? '-' : '';
+    final str = v.abs().toString();
+    final b = StringBuffer();
+    for (int i = 0; i < str.length; i++) {
+      if (i > 0 && (str.length - i) % 3 == 0) b.write('.');
+      b.write(str[i]);
+    }
+    return '${neg}Rp${b.toString()}';
   }
 
-  List<KksoItem> _produkKeKksoItems(List<Produk> list, String rakDefault) {
+  List<KksoItem> _toItems(List<Produk> list, String rakDef) {
     return list.map((p) {
-      final rak = p.kategori.trim().isEmpty ? rakDefault : 'Rak ${p.kategori.trim()}';
+      final rak = p.kategori.trim().isEmpty ? rakDef : 'Rak ${p.kategori.trim()}';
       return KksoItem(
         produkId: p.id,
         namaProduk: p.nama,
@@ -393,6 +397,7 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
         satuan: p.satuan,
         lokasiRak: rak,
         stokSistem: p.stok,
+        stokFisik: null,
         hargaModal: p.hargaModal,
         hargaJual: p.hargaJual,
         sudahDihitung: false,
@@ -400,939 +405,515 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
     }).toList();
   }
 
-  int? _ambilFisikQty(KksoItem it) {
-    if (_draftFisikKkso.containsKey(it.produkId)) {
-      return _draftFisikKkso[it.produkId];
-    }
+  int? _fisikOf(KksoItem it) {
+    if (_draftFisik.containsKey(it.produkId)) return _draftFisik[it.produkId];
     return it.sudahDihitung ? it.stokFisik : null;
   }
 
-  void _pilihProdukFokusKkso(KksoItem it) {
-    final existing = _ambilFisikQty(it);
+  int _sumHppSelisih(List<KksoItem> items) {
+    int sum = 0;
+    for (final it in items) {
+      final f = _fisikOf(it);
+      if (f != null && f != it.stokSistem) {
+        sum += (it.stokSistem - f) * it.hargaModal;
+      }
+    }
+    return sum;
+  }
+
+  int _sumOrigHpp(List<KksoItem> items) {
+    int sum = 0;
+    for (final it in items) {
+      final f = _fisikOf(it);
+      if (f != null && f != it.stokSistem) sum += it.stokSistem * it.hargaModal;
+    }
+    return sum;
+  }
+
+  int _sumAdjHpp(List<KksoItem> items) {
+    int sum = 0;
+    for (final it in items) {
+      final f = _fisikOf(it);
+      if (f != null && f != it.stokSistem) sum += f * it.hargaModal;
+    }
+    return sum;
+  }
+
+  // ignore: unused_element
+  void _bukaStep0Mulai({KksoJenis? jenisAwal}) {
+    if (_kksoIdCtrl.text.trim().isEmpty) {
+      _kksoIdCtrl.text = _genNoKkso(_step0Tgl);
+    }
     setState(() {
-      _selectedProdukIdKkso = it.produkId;
-      _keypadBufferKkso = existing != null ? '$existing' : '';
-      _keypadReplaceNext = true;
+      if (jenisAwal != null) _step0Jenis = jenisAwal;
+      _kksoStep = 0;
+      _aktifKkso = null;
     });
   }
 
-  void _mulaiSesiKkso({
-    required KksoJenis jenis,
-    required String subJenis,
-    required String areaLabel,
-    required List<Produk> targetProduk,
-  }) {
-    final items = _produkKeKksoItems(targetProduk, areaLabel);
+  void _mulaiStep1() {
+    if (widget.daftarProduk.isEmpty) return;
+    List<Produk> target;
+    String area;
+    if (_step0Jenis == KksoJenis.grand) {
+      target = List<Produk>.from(widget.daftarProduk);
+      area = 'Semua Area Toko • ${target.length} SKU';
+    } else if (_step0SubMode == 'Quick 5 SKU Risiko Tinggi') {
+      final s = List<Produk>.from(widget.daftarProduk)
+        ..sort((a, b) => (a.stok - a.minStokAlert).compareTo(b.stok - b.minStokAlert));
+      target = s.take(5).toList();
+      area = '5 SKU Rawan • ${target.length} SKU';
+    } else {
+      target = widget.daftarProduk.where((p) {
+        final rak = p.kategori.trim().isEmpty ? 'Rak Display 01' : 'Rak ${p.kategori.trim()}';
+        return rak == _step0Area;
+      }).toList();
+      if (target.isEmpty) target = List<Produk>.from(widget.daftarProduk);
+      area = '$_step0Area • ${target.length} SKU';
+    }
+
+    final idStr = _kksoIdCtrl.text.trim().isEmpty ? _genNoKkso(_step0Tgl) : _kksoIdCtrl.text.trim();
+    final items = _toItems(target, area);
     final doc = KksoDocument(
-      id: _buatNomorKkso(),
-      jenis: jenis,
-      subJenis: subJenis,
-      areaLabel: areaLabel,
+      id: idStr,
+      jenis: _step0Jenis,
+      subJenis: _step0Jenis == KksoJenis.grand ? 'Grand Opname' : _step0SubMode,
+      areaLabel: area,
       status: KksoStatus.hitung,
       petugasHitung: widget.currentStaff?.nama ?? 'Petugas Toko',
-      freezePenjualan: jenis == KksoJenis.grand,
-      tanggalDibuat: DateTime.now(),
+      freezePenjualan: _step0Jenis == KksoJenis.grand,
+      tanggalDibuat: _step0Tgl,
       items: items,
     );
+
+    _draftFisik.clear();
+    for (final it in items) {
+      _draftFisik[it.produkId] = null;
+    }
+    widget.onSimpanKkso([doc, ...widget.daftarKkso.where((d) => d.id != doc.id)]);
+
     setState(() {
       _aktifKkso = doc;
-      _barcodeKksoCtrl.clear();
-      _draftFisikKkso.clear();
-      for (final it in items) {
-        _draftFisikKkso[it.produkId] = null;
-      }
-      _selectedProdukIdKkso = items.isNotEmpty ? items.first.produkId : null;
-      _keypadBufferKkso = '';
-      _keypadReplaceNext = true;
+      _kksoStep = 1;
+      _fokusId = items.isNotEmpty ? items.first.produkId : null;
+      _padBuf = '';
+      _padReplace = true;
     });
   }
 
-  void _bukaPemilihanPartial(String modePartial) {
-    if (widget.daftarProduk.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Belum ada produk untuk di-opname.')),
-      );
-      return;
-    }
-
-    if (modePartial == 'Quick 5 SKU Risiko Tinggi') {
-      final sorted = List<Produk>.from(widget.daftarProduk)
-        ..sort((a, b) {
-          final skorA = a.stok - a.minStokAlert;
-          final skorB = b.stok - b.minStokAlert;
-          if (skorA != skorB) return skorA.compareTo(skorB);
-          return b.hargaModal.compareTo(a.hargaModal);
-        });
-      final limaSku = sorted.take(5).toList();
-      _mulaiSesiKkso(
-        jenis: KksoJenis.partial,
-        subJenis: 'Quick 5 SKU Risiko Tinggi',
-        areaLabel: '5 SKU Rawan • ${limaSku.length} SKU',
-        targetProduk: limaSku,
-      );
-      return;
-    }
-
-    final opsi = modePartial == 'Per Kategori'
-        ? (<String>{
-            for (final p in widget.daftarProduk)
-              if (p.kategori.trim().isNotEmpty) p.kategori.trim(),
-          }.toList())
-        : (<String>{
-            for (final p in widget.daftarProduk)
-              p.kategori.trim().isEmpty
-                  ? 'Rak Display 01'
-                  : 'Rak ${p.kategori.trim()}',
-          }.toList());
-
-    if (opsi.isEmpty) opsi.add('Rak Display 01');
-    String terpilih = opsi.first;
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlg) => AlertDialog(
-          backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          title: Text(
-            'Partial Opname • $modePartial',
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: _kSoGreen),
-          ),
-          content: DropdownButtonFormField<String>(
-            value: terpilih,
-            decoration: InputDecoration(
-              labelText: modePartial == 'Per Kategori' ? 'Pilih Kategori' : 'Pilih Rak / Area',
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            items: [
-              for (final o in opsi)
-                DropdownMenuItem(value: o, child: Text(o, style: const TextStyle(fontSize: 13))),
-            ],
-            onChanged: (v) {
-              if (v != null) setDlg(() => terpilih = v);
-            },
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
-            FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: _kSoGreen, foregroundColor: Colors.white),
-              onPressed: () {
-                final filtered = modePartial == 'Per Kategori'
-                    ? widget.daftarProduk.where((p) => p.kategori.trim() == terpilih).toList()
-                    : widget.daftarProduk.where((p) {
-                        final rak = p.kategori.trim().isEmpty
-                            ? 'Rak Display 01'
-                            : 'Rak ${p.kategori.trim()}';
-                        return rak == terpilih;
-                      }).toList();
-                Navigator.pop(ctx);
-                final subKat = filtered.isNotEmpty && filtered.first.kategori.trim().isNotEmpty
-                    ? filtered.first.kategori.trim()
-                    : terpilih;
-                _mulaiSesiKkso(
-                  jenis: KksoJenis.partial,
-                  subJenis: modePartial,
-                  areaLabel: '$terpilih • $subKat • ${filtered.length} SKU',
-                  targetProduk: filtered,
-                );
-              },
-              child: const Text('Mulai Hitung', style: TextStyle(fontWeight: FontWeight.w800)),
-            ),
-          ],
-        ),
-      ),
-    );
+  void _pilihFokus(KksoItem it, {bool editMode = false}) {
+    final q = _fisikOf(it);
+    setState(() {
+      _fokusId = it.produkId;
+      _padBuf = q != null ? '$q' : '';
+      _padReplace = true;
+      if (editMode) _snapEdit.putIfAbsent(it.produkId, () => q);
+    });
   }
 
-  void _onKeypadDigit(String digit) {
+  void _onDigit(String d) {
     HapticFeedback.lightImpact();
     setState(() {
-      if (_keypadReplaceNext) {
-        _keypadBufferKkso = digit;
-        _keypadReplaceNext = false;
-      } else {
-        if (_keypadBufferKkso == '0') {
-          _keypadBufferKkso = digit;
-        } else if (_keypadBufferKkso.length < 6) {
-          _keypadBufferKkso += digit;
-        }
+      if (_padReplace) {
+        _padBuf = d;
+        _padReplace = false;
+      } else if (_padBuf == '0') {
+        _padBuf = d;
+      } else if (_padBuf.length < 6) {
+        _padBuf += d;
       }
     });
   }
 
-  void _onKeypadClear() {
+  void _onClear() {
     HapticFeedback.selectionClick();
     setState(() {
-      _keypadBufferKkso = '';
-      _keypadReplaceNext = false;
+      _padBuf = '';
+      _padReplace = false;
     });
   }
 
-  void _batalInputFokusKkso(KksoItem fokusItem) {
-    HapticFeedback.selectionClick();
-    final existing = _ambilFisikQty(fokusItem);
-    setState(() {
-      _keypadBufferKkso = existing != null ? '$existing' : '';
-      _keypadReplaceNext = true;
-    });
-  }
-
-  void _simpanItemFokusDanLanjut(KksoDocument doc, KksoItem fokusItem) {
+  void _onConfirm(KksoDocument doc, KksoItem item, {bool editMode = false}) {
     HapticFeedback.mediumImpact();
-    final raw = _keypadBufferKkso.trim();
-    // Jika kosong, dianggap 0 hanya jika memang belum pernah diisi & user menekan Enter langsung,
-    // atau gunakan angka yang diketik (termasuk '0').
-    final int nilaiSimpan = raw.isEmpty ? 0 : (int.tryParse(raw) ?? 0);
-
+    final qty = _padBuf.trim().isEmpty ? 0 : (int.tryParse(_padBuf.trim()) ?? 0);
     setState(() {
-      _draftFisikKkso[fokusItem.produkId] = nilaiSimpan;
+      _draftFisik[item.produkId] = qty;
+      if (editMode) {
+        final prev = _snapEdit[item.produkId] ?? _fisikOf(item) ?? 0;
+        if (prev != qty) {
+          final now = DateTime.now();
+          final jam = '${now.hour.toString().padLeft(2, "0")}:${now.minute.toString().padLeft(2, "0")}';
+          final vNext = (doc.lastPrint?.versi ?? 1) + 1;
+          final note = _editCatatanCtrl.text.trim();
+          final line = 'v${vNext - 1} -> v$vNext (${item.namaProduk}: $prev -> $qty) • $jam${note.isNotEmpty ? " • $note" : ""}';
+          _aktifKkso = doc.copyWith(editLogs: [...doc.editLogs, line]);
+        }
+        _snapEdit[item.produkId] = qty;
+      }
 
-      // Cari produk berikutnya yang belum dihitung (fisik_qty == null)
-      final curIdx = doc.items.indexWhere((e) => e.produkId == fokusItem.produkId);
-      KksoItem? nextItem;
-      for (int step = 1; step <= doc.items.length; step++) {
-        final cand = doc.items[(curIdx + step) % doc.items.length];
-        if (cand.produkId != fokusItem.produkId && _ambilFisikQty(cand) == null) {
-          nextItem = cand;
+      final curIdx = doc.items.indexWhere((e) => e.produkId == item.produkId);
+      KksoItem? nextNull;
+      for (int s = 1; s <= doc.items.length; s++) {
+        final cand = doc.items[(curIdx + s) % doc.items.length];
+        if (cand.produkId != item.produkId && _fisikOf(cand) == null) {
+          nextNull = cand;
           break;
         }
       }
-      if (nextItem == null && doc.items.length > 1) {
-        nextItem = doc.items[(curIdx + 1) % doc.items.length];
-      }
-
-      if (nextItem != null) {
-        _selectedProdukIdKkso = nextItem.produkId;
-        final nextQty = _ambilFisikQty(nextItem);
-        _keypadBufferKkso = nextQty != null ? '$nextQty' : '';
-        _keypadReplaceNext = true;
+      if (nextNull != null) {
+        _fokusId = nextNull.produkId;
+        final nq = _fisikOf(nextNull);
+        _padBuf = nq != null ? '$nq' : '';
+        _padReplace = true;
       } else {
-        _keypadBufferKkso = '$nilaiSimpan';
-        _keypadReplaceNext = true;
+        _padBuf = '$qty';
+        _padReplace = true;
       }
     });
-
-    final terhitungBaru = doc.items.where((e) => _ambilFisikQty(e) != null).length;
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('✓ ${fokusItem.namaProduk}: OK $nilaiSimpan ($terhitungBaru dari ${doc.items.length} item)'),
-        duration: const Duration(milliseconds: 900),
-      ),
-    );
   }
 
-  void _fokusKeBarcodeKkso(String rawQuery) {
-    final q = rawQuery.trim().toLowerCase();
-    final doc = _aktifKkso;
-    if (q.isEmpty || doc == null) return;
-    final idx = doc.items.indexWhere(
-      (it) =>
-          it.kodeSku.toLowerCase() == q ||
-          it.barcode.toLowerCase() == q ||
-          it.namaProduk.toLowerCase().contains(q),
-    );
-    if (idx == -1) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Barcode/SKU "$rawQuery" tidak ditemukan di sesi ini.')),
-      );
-      return;
-    }
-    final target = doc.items[idx];
-    _barcodeKksoCtrl.clear();
-    FocusScope.of(context).unfocus();
-    _pilihProdukFokusKkso(target);
-  }
-
-  void _simpanProgresHitungKkso({required bool ajukanReview}) {
-    final doc = _aktifKkso;
-    if (doc == null) return;
-    final updatedItems = doc.items.map((it) {
-      final fisik = _ambilFisikQty(it);
-      final sudah = fisik != null;
-      return it.copyWith(
-        stokFisik: fisik,
-        clearStokFisik: !sudah,
-        sudahDihitung: sudah,
-      );
+  KksoDocument _syncDoc(KksoDocument doc, {KksoStatus? st}) {
+    final items = doc.items.map((it) {
+      final f = _fisikOf(it);
+      final done = f != null;
+      return it.copyWith(stokFisik: f, clearStokFisik: !done, sudahDihitung: done);
     }).toList();
-
-    final semuaSelesai = updatedItems.every((e) => e.stokFisik != null && e.sudahDihitung);
-    if (ajukanReview && !semuaSelesai) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Isi seluruh jumlah fisik produk (termasuk 0 jika kosong) sebelum Minta Review.')),
-      );
-      return;
-    }
-
-    final nextDoc = doc.copyWith(
-      items: updatedItems,
-      status: ajukanReview ? KksoStatus.review : KksoStatus.hitung,
-      tanggalSelesaiHitung: ajukanReview ? DateTime.now() : doc.tanggalSelesaiHitung,
-    );
-
-    setState(() {
-      _aktifKkso = nextDoc;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          ajukanReview
-              ? '${nextDoc.id} diajukan ke Review Owner.'
-              : 'Progres ${nextDoc.totalTerhitung}/${nextDoc.totalSku} SKU tersimpan.',
-        ),
-      ),
-    );
+    return doc.copyWith(items: items, status: st ?? doc.status, tanggalSelesaiHitung: DateTime.now());
   }
 
-  Widget _buildKksoPilihanAwal(AppThemeConfig t) {
-    final totalSemuaSku = widget.daftarProduk.length;
-    final grandCountLabel = totalSemuaSku > 0 ? '$totalSemuaSku SKU' : '120 SKU';
-    final now = DateTime.now();
-    final jamLabel =
-        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+  Future<void> _cetakSelisihPdf(KksoDocument doc) async {
+    final diffItems = doc.items.where((it) {
+      final f = _fisikOf(it);
+      return f != null && f != it.stokSistem;
+    }).toList();
+    final hppSelisih = _sumHppSelisih(doc.items);
+    final ver = (doc.lastPrint?.versi ?? 0) + 1;
 
-    return ListView(
-      key: const ValueKey('kkso_pilih_jenis'),
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
-      children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: _kSoGreen,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withAlpha(32),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(Icons.visibility_off_rounded, color: Colors.white, size: 20),
-              ),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+    final pdf = pw.Document();
+    pdf.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(28),
+        build: (ctx) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text(widget.toko?.namaToko ?? 'Nusantara Retail POS', style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
+                pw.Text('DRAFT • BUKAN ADJUST (v$ver)', style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold, color: PdfColors.red800)),
+              ],
+            ),
+            pw.SizedBox(height: 8),
+            pw.Text('Cetak Selisih — Ultra Blind Count', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+            pw.Text('${doc.id} • ${doc.areaLabel}', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+            pw.Divider(height: 20),
+            for (final it in diffItems)
+              pw.Container(
+                margin: const pw.EdgeInsets.only(bottom: 8),
+                padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey300), borderRadius: pw.BorderRadius.circular(6)),
+                child: pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'Mode Blind Count Aktif',
-                      style: TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w900),
-                    ),
-                    Text(
-                      'Stok sistem disembunyikan • Petugas hanya mencatat hitungan fisik',
-                      style: TextStyle(color: Colors.white70, fontSize: 11),
-                    ),
+                    pw.Text(it.namaProduk, style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
+                    pw.Text('Has Difference', style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold, color: PdfColors.orange800)),
                   ],
                 ),
               ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'KKSO / ${now.year} / ${_buatNomorKkso().split("-").last}',
-              style: gayaAngka(const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: _kSoGreen)),
-            ),
-            Text(
-              'Progres 0/0 • Dimulai hari ini $jamLabel',
-              style: TextStyle(fontSize: 11, color: t.textSecondary),
+            pw.Spacer(),
+            pw.Container(
+              width: double.infinity,
+              padding: const pw.EdgeInsets.all(14),
+              decoration: pw.BoxDecoration(color: PdfColors.blue50, border: pw.Border.all(color: PdfColors.blue700), borderRadius: pw.BorderRadius.circular(8)),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text('Total HPP Selisih', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                  pw.Text(_fmtRp(hppSelisih), style: pw.TextStyle(fontSize: 15, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                ],
+              ),
             ),
           ],
         ),
-        const SizedBox(height: 12),
-        const Text(
-          'Pilih Jenis Stock Opname',
-          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: _kSoGreen),
-        ),
-        const Text(
-          'Pilih mode untuk memulai. Semua penghitungan bersifat blind count.',
-          style: TextStyle(fontSize: 11.5, color: Colors.black54),
-        ),
-        const SizedBox(height: 10),
-        Material(
-          color: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: const BorderSide(color: _kSoGreen, width: 1.5),
-          ),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: () => _mulaiSesiKkso(
-              jenis: KksoJenis.grand,
-              subJenis: 'Full Inventory',
-              areaLabel: 'Semua Area Toko • $grandCountLabel',
-              targetProduk: widget.daftarProduk,
+      ),
+    );
+
+    final bytes = await pdf.save();
+    final synced = _syncDoc(doc, st: KksoStatus.review).copyWith(
+      lastPrint: KksoPrint(versi: ver, totalHppSelisih: hppSelisih, dicetakPada: DateTime.now(), ringkasanVersi: doc.editLogs),
+    );
+    setState(() => _aktifKkso = synced);
+    widget.onSimpanKkso([synced, ...widget.daftarKkso.where((d) => d.id != synced.id)]);
+    await Printing.sharePdf(bytes: bytes, filename: 'Draft_Selisih_${doc.id}_v$ver.pdf');
+  }
+
+  Future<void> _prosesFixedAdjust(KksoDocument doc) async {
+    if (_pinSisCtrl.text.trim() != _kPinSisValid) {
+      setState(() => _pinErr = true);
+      return;
+    }
+    setState(() {
+      _pinErr = false;
+      _busyAdjust = true;
+    });
+
+    final postedBase = _syncDoc(doc, st: KksoStatus.posted).copyWith(
+      disetujuiOleh: widget.currentStaff?.nama ?? 'Owner / SIS',
+      pinSisTerverifikasi: true,
+      tanggalPosted: DateTime.now(),
+      alasan: doc.alasan ?? 'Fixed Adjust Stock Opname',
+      catatan: _editCatatanCtrl.text.trim().isNotEmpty ? _editCatatanCtrl.text.trim() : (doc.editLogs.isNotEmpty ? doc.editLogs.last : 'PIN SIS Valid'),
+    );
+
+    for (final it in postedBase.items) {
+      final f = it.stokFisik;
+      if (f != null && f != it.stokSistem) {
+        final delta = f - it.stokSistem;
+        final prd = widget.daftarProduk.firstWhere(
+          (p) => p.id == it.produkId,
+          orElse: () => Produk(id: it.produkId, nama: it.namaProduk, kodeSku: it.kodeSku, kategori: it.kategori, satuan: it.satuan, hargaModal: it.hargaModal, hargaJual: it.hargaJual, stok: it.stokSistem),
+        );
+        widget.onSimpanProduk(prd.copyWith(stok: f), false);
+        widget.onMutasiStok(produk: prd, tipe: delta > 0 ? 'Masuk' : 'Keluar', perubahan: delta.abs(), keterangan: 'KKSO ${postedBase.id} FIXED ADJUST (${it.stokSistem} -> $f)');
+      }
+    }
+
+    final pdfBytes = await generateKksoBeritaAcaraPdf(postedBase, widget.toko ?? PengaturanToko.defaultAwal());
+    final finalDoc = postedBase.copyWith(pdfBase64: base64Encode(pdfBytes));
+    widget.onSimpanKkso([finalDoc, ...widget.daftarKkso.where((d) => d.id != finalDoc.id)]);
+
+    setState(() {
+      _busyAdjust = false;
+      _aktifKkso = null;
+      _kksoStep = 0;
+      _pinSisCtrl.clear();
+    });
+  }
+
+  // ignore: unused_element
+  Widget _buildKksoFlow(AppThemeConfig t, KksoDocument doc) {
+    if (_kksoStep == 1) return _buildStep1(doc);
+    if (_kksoStep == 2) return _buildStep2(doc);
+    if (_kksoStep == 3) return _buildStep3(doc);
+    if (_kksoStep == 4) return _buildStep4(doc);
+    if (_kksoStep == 5) return _buildStep5(doc);
+    return _buildStep0(jenisAwal: doc.jenis);
+  }
+
+  Widget _buildStep0({KksoJenis? jenisAwal}) {
+    final j = jenisAwal ?? _step0Jenis;
+    final rakList = <String>{
+      for (final p in widget.daftarProduk) p.kategori.trim().isEmpty ? 'Rak Display 01' : 'Rak ${p.kategori.trim()}',
+    }.toList();
+    if (rakList.isEmpty) rakList.add('Rak Display 01');
+    final curRak = rakList.contains(_step0Area) ? _step0Area : rakList.first;
+
+    return Scaffold(
+      key: const ValueKey('step0'),
+      resizeToAvoidBottomInset: false,
+      backgroundColor: const Color(0xFFF6F9F7),
+      body: ListView(
+        padding: const EdgeInsets.all(14),
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(color: _kSoGreen, borderRadius: BorderRadius.circular(14)),
+            child: Row(
+              children: [
+                IconButton(onPressed: () => setState(() => _aktifKkso = null), icon: const Icon(Icons.arrow_back_rounded, color: Colors.white)),
+                const Expanded(child: Text('Nusantara Retail POS', style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900))),
+                const Text('DRAFT-HITUNG', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w800)),
+              ],
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: _kSoGreen,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(Icons.inventory_2_rounded, color: Colors.white, size: 22),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'GRAND OPNAME',
-                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: _kSoGreen),
-                            ),
-                            Text(
-                              'Full inventory • $grandCountLabel • Estimasi 45 menit',
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.black87),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Icon(Icons.chevron_right_rounded, color: _kSoGreen, size: 26),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                    decoration: BoxDecoration(
-                      color: _kSoGreenSoft,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Text(
-                      'Semua area toko • Wajib verifikasi ganda • Freeze penjualan',
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: _kSoGreen),
-                    ),
-                  ),
-                ],
-              ),
+          ),
+          const SizedBox(height: 12),
+          const Text('Step 0 of 3 • Mulai Stock Opname', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 10),
+          _JenisTile(title: 'Grand Opname', sub: 'Hitung seluruh stok di semua lokasi', selected: j == KksoJenis.grand, onTap: () => setState(() => _step0Jenis = KksoJenis.grand)),
+          const SizedBox(height: 8),
+          _JenisTile(title: 'Partial Opname', sub: 'Hitung sebagian stok sesuai kategori/lokasi', selected: j == KksoJenis.partial, onTap: () => setState(() => _step0Jenis = KksoJenis.partial)),
+          if (j == KksoJenis.partial) ...[
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: curRak,
+              decoration: InputDecoration(labelText: 'Pilih Rak / Area', filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+              items: [for (final r in rakList) DropdownMenuItem(value: r, child: Text(r))],
+              onChanged: (v) { if (v != null) setState(() => _step0Area = v); },
+            ),
+          ],
+          const SizedBox(height: 12),
+          TextField(
+            controller: _kksoIdCtrl,
+            decoration: InputDecoration(
+              labelText: 'KKSO ID',
+              filled: true,
+              fillColor: Colors.white,
+              suffixIcon: IconButton(onPressed: () => _kksoIdCtrl.text = _genNoKkso(_step0Tgl), icon: const Icon(Icons.refresh_rounded, color: _kSoGreen)),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             ),
           ),
-        ),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: _kSoGreen.withAlpha(110)),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 48,
+            child: FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: _kSoGreen, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24))),
+              onPressed: _mulaiStep1,
+              child: const Text('Mulai', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900)),
+            ),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: _kSoGreenSoft,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.layers_rounded, color: _kSoGreen, size: 22),
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'PARTIAL OPNAME',
-                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: _kSoGreen),
-                        ),
-                        Text(
-                          'Pilih area tertentu untuk dihitung',
-                          style: TextStyle(fontSize: 12, color: Colors.black54),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: _kSoGreen,
-                        side: const BorderSide(color: _kSoGreen),
-                        padding: const EdgeInsets.symmetric(vertical: 9),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                      onPressed: () => _bukaPemilihanPartial('Per Rak'),
-                      icon: const Icon(Icons.shelves, size: 16),
-                      label: const Text('Per Rak', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800)),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: _kSoGreen,
-                        side: const BorderSide(color: _kSoGreen),
-                        padding: const EdgeInsets.symmetric(vertical: 9),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                      onPressed: () => _bukaPemilihanPartial('Per Kategori'),
-                      icon: const Icon(Icons.folder_copy_rounded, size: 16),
-                      label: const Text('Per Kategori', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800)),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFFB45309),
-                    side: const BorderSide(color: Color(0xFFD97706)),
-                    padding: const EdgeInsets.symmetric(vertical: 9),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  onPressed: () => _bukaPemilihanPartial('Quick 5 SKU Risiko Tinggi'),
-                  icon: const Icon(Icons.warning_amber_rounded, size: 17),
-                  label: const Text(
-                    'Quick 5 SKU Risiko Tinggi',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: _kSoGreenSoft,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Text(
-            'Tips: Gunakan Partial untuk area cepat atau SKU risiko tinggi • Tanpa foto bukti.',
-            style: TextStyle(fontSize: 11, color: _kSoGreen, fontWeight: FontWeight.w700),
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  Widget _buildKksoHitungBorongan(AppThemeConfig t, KksoDocument doc) {
+  Widget _buildStep1(KksoDocument doc) {
     final total = doc.items.length;
-    final hitungSekarang = doc.items.where((e) => _ambilFisikQty(e) != null).length;
-    final progres = total == 0 ? 0.0 : (hitungSekarang / total).clamp(0.0, 1.0);
-    final semuaSelesai = total > 0 && hitungSekarang >= total;
+    final doneCount = doc.items.where((e) => _fisikOf(e) != null).length;
 
-    // Tentukan produk yang sedang fokus di card tengah
-    KksoItem? fokusItem;
-    if (doc.items.isNotEmpty) {
-      fokusItem = doc.items.firstWhere(
-        (e) => e.produkId == _selectedProdukIdKkso,
-        orElse: () => doc.items.firstWhere(
-          (e) => _ambilFisikQty(e) == null,
-          orElse: () => doc.items.first,
-        ),
-      );
-    }
-
-    // Urutkan list mini: yang sudah diisi di atas agar ringkas terlihat ("Air Mineral 600ml - OK 24"), atau tampilkan semua dalam 1 list unified
-    final sortedMini = [...doc.items]..sort((a, b) {
-        final aDone = _ambilFisikQty(a) != null;
-        final bDone = _ambilFisikQty(b) != null;
-        if (aDone != bDone) return aDone ? -1 : 1;
-        return 0;
+    final indexed = doc.items.asMap().entries.toList()
+      ..sort((a, b) {
+        final ad = _fisikOf(a.value) != null;
+        final bd = _fisikOf(b.value) != null;
+        if (ad != bd) return ad ? 1 : -1;
+        return a.key.compareTo(b.key);
       });
+    final listUnified = [for (final e in indexed) e.value];
 
-    final int? savedFokusQty = fokusItem != null ? _ambilFisikQty(fokusItem) : null;
-    final String displayAngkaBesar = _keypadBufferKkso.isNotEmpty
-        ? _keypadBufferKkso
-        : (savedFokusQty != null ? '$savedFokusQty' : '-');
+    final fokus = listUnified.isEmpty
+        ? null
+        : listUnified.firstWhere((e) => e.produkId == _fokusId, orElse: () => listUnified.firstWhere((e) => _fisikOf(e) == null, orElse: () => listUnified.first));
+    final fQty = fokus != null ? _fisikOf(fokus) : null;
+    final bigVal = _padBuf.isNotEmpty ? _padBuf : (fQty != null ? '$fQty' : '-');
 
     return Scaffold(
-      key: const ValueKey('kkso_hitung_borongan'),
+      key: const ValueKey('step1'),
       resizeToAvoidBottomInset: false,
-      backgroundColor: const Color(0xFFF4F7F5),
+      backgroundColor: const Color(0xFFF3F6F4),
       body: Column(
         children: [
-          // ================= BAGIAN 1: HEADER + BANNER + LIST MINI (SCROLLABLE) =================
           Container(
-            color: Colors.white,
-            padding: const EdgeInsets.fromLTRB(10, 6, 12, 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+            color: _kSoBlue,
+            padding: const EdgeInsets.fromLTRB(8, 6, 12, 8),
+            child: Row(
               children: [
-                Row(
-                  children: [
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () => setState(() => _aktifKkso = null),
-                      icon: const Icon(Icons.arrow_back_rounded, color: _kSoGreen),
+                IconButton(onPressed: () => setState(() => _kksoStep = 0), icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18)),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('${doc.id} • STEP 1 INPUT', style: const TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w900)),
+                      const Text('System Qty: --- • Hidden (Ultra Blind Count)', style: TextStyle(color: Colors.white70, fontSize: 10.5)),
+                    ],
+                  ),
+                ),
+                Text('$doneCount/$total', style: gayaAngka(const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w900))),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView.separated(
+              padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
+              itemCount: listUnified.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 4),
+              itemBuilder: (ctx, i) {
+                final it = listUnified[i];
+                final q = _fisikOf(it);
+                final done = q != null;
+                final sel = fokus?.produkId == it.produkId;
+                return InkWell(
+                  borderRadius: BorderRadius.circular(9),
+                  onTap: () => _pilihFokus(it),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: done ? const Color(0xFFE8F5E9) : Colors.white,
+                      borderRadius: BorderRadius.circular(9),
+                      border: Border.all(color: sel ? _kSoBlue : (done ? _kSoGreen : Colors.grey.shade300), width: sel ? 1.7 : 1),
                     ),
+                    child: Row(
+                      children: [
+                        Icon(done ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded, size: 16, color: done ? _kSoGreen : Colors.grey.shade400),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            done ? '${it.namaProduk} - OK $q' : it.namaProduk,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 12, fontWeight: done || sel ? FontWeight.w800 : FontWeight.w600, color: done ? _kSoGreen : Colors.black87),
+                          ),
+                        ),
+                        const Text('Sys: ---', style: TextStyle(fontSize: 10.5, color: Colors.black45)),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          if (fokus != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 2, 10, 6),
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: fQty != null ? const Color(0xFFE8F5E9) : Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: _kSoBlue, width: 1.5),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.inventory_2_rounded, color: _kSoBlue, size: 32),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            doc.jenis == KksoJenis.grand ? 'GRAND OPNAME' : 'PARTIAL OPNAME',
-                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: _kSoGreen),
-                          ),
-                          Text(
-                            '${doc.areaLabel} • $hitungSekarang dari $total item',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 11, color: Colors.black54),
-                          ),
+                          Text(fokus.namaProduk, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900)),
+                          Text('SKU: ${fokus.kodeSku} • System Qty: ---', style: const TextStyle(fontSize: 10.5, color: Colors.black54)),
+                          const Text('Ketuk angka untuk ubah', style: TextStyle(fontSize: 10, color: _kSoBlue, fontWeight: FontWeight.w700)),
                         ],
                       ),
                     ),
-                    Text(
-                      '$hitungSekarang/$total',
-                      style: gayaAngka(const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: _kSoGreen)),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: LinearProgressIndicator(
-                    value: progres,
-                    minHeight: 6,
-                    backgroundColor: _kSoGreenSoft,
-                    valueColor: const AlwaysStoppedAnimation(_kSoGreen),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE8F5E9),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: _kSoGreen.withAlpha(80)),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.visibility_off_rounded, color: _kSoGreen, size: 15),
-                      SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          'Blind Count — Stok sistem disembunyikan (-----)',
-                          style: TextStyle(color: _kSoGreen, fontSize: 11, fontWeight: FontWeight.w800),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // List Mini Unified (Expanded, scrollable, tanpa tab Belum/Sudah Hitung)
-          Expanded(
-            child: ListView.separated(
-              padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-              itemCount: sortedMini.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 5),
-              itemBuilder: (ctx, idx) {
-                final it = sortedMini[idx];
-                final qty = _ambilFisikQty(it);
-                final sudah = qty != null;
-                final isSelected = fokusItem?.produkId == it.produkId;
-
-                return InkWell(
-                  borderRadius: BorderRadius.circular(10),
-                  onTap: () => _pilihProdukFokusKkso(it),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                    decoration: BoxDecoration(
-                      color: sudah ? const Color(0xFFE8F5E9) : Colors.white,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: isSelected
-                            ? _kSoGreen
-                            : (sudah ? _kSoGreen.withAlpha(140) : Colors.grey.shade300),
-                        width: isSelected ? 1.8 : 1.0,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          sudah ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-                          size: 16,
-                          color: sudah ? _kSoGreen : Colors.grey.shade400,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            sudah ? '${it.namaProduk} - OK $qty' : it.namaProduk,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: isSelected || sudah ? FontWeight.w800 : FontWeight.w600,
-                              color: sudah ? _kSoGreen : Colors.black87,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          sudah ? 'OK $qty' : '-----',
-                          style: gayaAngka(
-                            TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w900,
-                              color: sudah ? _kSoGreen : Colors.black45,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-
-          // ================= BAGIAN 2: CARD PRODUK TERPILIH (BESAR & FOKUS) =================
-          if (fokusItem != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 2, 12, 6),
-              child: Container(
-                padding: const EdgeInsets.all(11),
-                decoration: BoxDecoration(
-                  color: savedFokusQty != null ? const Color(0xFFE8F5E9) : Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: _kSoGreen, width: 1.6),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withAlpha(14),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 46,
-                          height: 46,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: _kSoGreen.withAlpha(80)),
-                          ),
-                          alignment: Alignment.center,
-                          child: const Icon(Icons.inventory_2_rounded, color: _kSoGreen, size: 24),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                fokusItem.namaProduk,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w900),
-                              ),
-                              Text(
-                                'SKU: ${fokusItem.kodeSku} • Stok Sistem: -----',
-                                style: const TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.w700),
-                              ),
-                              const Text(
-                                'Jumlah Stok - Edit jumlah stok ketuk angka untuk ubah',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(fontSize: 10, color: _kSoGreen, fontWeight: FontWeight.w700),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        // Display Angka Jumlah Stok SANGAT BESAR (48px), readOnly tanpa keyboard sistem
-                        GestureDetector(
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            setState(() => _keypadReplaceNext = true);
-                          },
-                          child: Container(
-                            constraints: const BoxConstraints(minWidth: 88),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: _kSoGreen, width: 1.5),
-                            ),
-                            alignment: Alignment.center,
-                            child: Text(
-                              displayAngkaBesar,
-                              style: gayaAngka(
-                                TextStyle(
-                                  fontSize: 48,
-                                  height: 1.05,
-                                  fontWeight: FontWeight.w900,
-                                  color: displayAngkaBesar == '-' ? Colors.black38 : _kSoGreen,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    // TextField dummy readOnly: true, showCursor: false agar tidak pernah memanggil keyboard sistem
-                    SizedBox(
-                      height: 0,
-                      width: 0,
-                      child: TextField(
-                        readOnly: true,
-                        showCursor: false,
-                        enableInteractiveSelection: false,
+                    GestureDetector(
+                      onTap: () => setState(() => _padReplace = true),
+                      child: Container(
+                        constraints: const BoxConstraints(minWidth: 82),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: _kSoBlue)),
+                        alignment: Alignment.center,
+                        child: Text(bigVal, style: gayaAngka(TextStyle(fontSize: 48, height: 1.05, fontWeight: FontWeight.w900, color: bigVal == '-' ? Colors.black38 : _kSoBlue))),
                       ),
                     ),
                   ],
                 ),
               ),
             ),
-
-          // ================= BAGIAN 3: TOMBOL SIMPAN & LANJUT + CUSTOM NUMERIC KEYPAD =================
           Container(
             color: Colors.white,
-            padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
+            padding: const EdgeInsets.fromLTRB(10, 6, 10, 10),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Selalu terlihat di atas keypad
-                Row(
-                  children: [
-                    Expanded(
-                      child: SizedBox(
-                        height: 44,
-                        child: OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: _kSoGreen,
-                            side: const BorderSide(color: _kSoGreen, width: 1.3),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
-                          ),
-                          onPressed: () {
-                            final scanCtrl = TextEditingController();
-                            showDialog(
-                              context: context,
-                              builder: (ctx) => AlertDialog(
-                                title: const Text('Cari / Scan Barcode', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: _kSoGreen)),
-                                content: TextField(
-                                  controller: scanCtrl,
-                                  autofocus: true,
-                                  decoration: const InputDecoration(hintText: 'Masukkan SKU / Barcode...'),
-                                  onSubmitted: (v) {
-                                    Navigator.pop(ctx);
-                                    _fokusKeBarcodeKkso(v);
-                                  },
-                                ),
-                                actions: [
-                                  TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
-                                  FilledButton(
-                                    style: FilledButton.styleFrom(backgroundColor: _kSoGreen),
-                                    onPressed: () {
-                                      Navigator.pop(ctx);
-                                      _fokusKeBarcodeKkso(scanCtrl.text);
-                                    },
-                                    child: const Text('Pilih'),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.qr_code_scanner_rounded, size: 17),
-                          label: const Text('Scan SKU', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800)),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      flex: 2,
-                      child: SizedBox(
-                        height: 44,
-                        child: FilledButton.icon(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: _kSoGreen,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
-                          ),
-                          onPressed: () => _simpanProgresHitungKkso(ajukanReview: semuaSelesai),
-                          icon: Icon(
-                            semuaSelesai ? Icons.fact_check_rounded : Icons.check_circle_outline_rounded,
-                            size: 17,
-                          ),
-                          label: Text(
-                            semuaSelesai ? 'Minta Review ($hitungSekarang/$total)' : 'Simpan & Lanjut $hitungSekarang/$total',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
+                SizedBox(
+                  width: double.infinity,
+                  height: 38,
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(foregroundColor: _kSoGreen, side: const BorderSide(color: _kSoGreen)),
+                    onPressed: () => setState(() {
+                      _aktifKkso = _syncDoc(doc);
+                      _kksoStep = 2;
+                    }),
+                    child: Text('Step 2: Cek Qty ($doneCount/$total)', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
+                  ),
                 ),
                 const SizedBox(height: 6),
-                CustomKeypad(
-                  primaryColor: _kSoGreen,
-                  onDigit: _onKeypadDigit,
-                  onClear: _onKeypadClear,
-                  onEnter: fokusItem == null
-                      ? () {}
-                      : () => _simpanItemFokusDanLanjut(doc, fokusItem!),
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Expanded(
-                      child: SizedBox(
-                        height: 44,
-                        child: OutlinedButton(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.black87,
-                            side: BorderSide(color: Colors.grey.shade400),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
-                          ),
-                          onPressed: fokusItem == null ? null : () => _batalInputFokusKkso(fokusItem!),
-                          child: const Text('Batal', style: TextStyle(fontWeight: FontWeight.w800)),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: SizedBox(
-                        height: 44,
-                        child: FilledButton(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: _kSoGreen,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
-                          ),
-                          onPressed: fokusItem == null
-                              ? null
-                              : () => _simpanItemFokusDanLanjut(doc, fokusItem!),
-                          child: const Text('Simpan Stok', style: TextStyle(fontWeight: FontWeight.w900)),
-                        ),
-                      ),
-                    ),
-                  ],
+                _NumKeypad(
+                  color: _kSoBlue,
+                  confirmText: 'CONFIRM COUNT',
+                  onDigit: _onDigit,
+                  onClear: _onClear,
+                  onConfirm: fokus == null ? () {} : () => _onConfirm(doc, fokus),
                 ),
               ],
             ),
@@ -1341,6 +922,320 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
       ),
     );
   }
+
+  Widget _buildStep2(KksoDocument doc) {
+    final total = doc.items.length;
+    final doneCount = doc.items.where((e) => _fisikOf(e) != null).length;
+
+    return Scaffold(
+      key: const ValueKey('step2'),
+      resizeToAvoidBottomInset: false,
+      backgroundColor: const Color(0xFFF5F7FA),
+      body: Column(
+        children: [
+          Container(
+            color: _kSoBlue,
+            padding: const EdgeInsets.fromLTRB(8, 8, 12, 10),
+            child: Row(
+              children: [
+                IconButton(onPressed: () => setState(() => _kksoStep = 1), icon: const Icon(Icons.arrow_back_rounded, color: Colors.white)),
+                const Expanded(child: Text('Step 2: Cek Qty Stock Opname', style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900))),
+                Text('$doneCount/$total', style: gayaAngka(const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w900))),
+              ],
+            ),
+          ),
+          Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(10), border: Border.all(color: _kSoBlue.withAlpha(80))),
+            child: const Text('Hanya input Qty Fisik. Qty Sistem tidak ditampilkan (---).', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: _kSoBlue)),
+          ),
+          Expanded(
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              itemCount: doc.items.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 6),
+              itemBuilder: (ctx, i) {
+                final it = doc.items[i];
+                final q = _fisikOf(it);
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey.shade300)),
+                  child: Row(
+                    children: [
+                      Icon(q != null ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded, color: q != null ? _kSoGreen : Colors.grey.shade400, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(it.namaProduk, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800))),
+                      Text('Qty Fisik: ${q != null ? "$q" : "-"}', style: gayaAngka(const TextStyle(fontSize: 12, fontWeight: FontWeight.w900))),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(backgroundColor: _kSoBlue, foregroundColor: Colors.white),
+                onPressed: () => setState(() {
+                  _aktifKkso = _syncDoc(doc);
+                  _kksoStep = 3;
+                }),
+                icon: const Icon(Icons.print_rounded, size: 18),
+                label: const Text('Cek dan Cetak Selisih', style: TextStyle(fontWeight: FontWeight.w900)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStep3(KksoDocument doc) {
+    final diffItems = doc.items.where((it) {
+      final f = _fisikOf(it);
+      return f != null && f != it.stokSistem;
+    }).toList();
+    final hppSelisih = _sumHppSelisih(doc.items);
+
+    return Scaffold(
+      key: const ValueKey('step3'),
+      resizeToAvoidBottomInset: false,
+      backgroundColor: const Color(0xFFF3F5F8),
+      body: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          children: [
+            Expanded(
+              child: _DraftSelisihCard(
+                tokoNama: widget.toko?.namaToko ?? 'Nusantara Retail POS',
+                itemsSelisih: diffItems,
+                totalHppLabel: _fmtRp(hppSelisih),
+                onEdit: () {
+                  _snapEdit.clear();
+                  for (final it in doc.items) { _snapEdit[it.produkId] = _fisikOf(it); }
+                  final first = diffItems.isNotEmpty ? diffItems.first : doc.items.first;
+                  setState(() {
+                    _fokusId = first.produkId;
+                    final q = _fisikOf(first);
+                    _padBuf = q != null ? '$q' : '';
+                    _padReplace = true;
+                    _kksoStep = 4;
+                  });
+                },
+                onPrint: () => _cetakSelisihPdf(doc),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(child: OutlinedButton(onPressed: () => setState(() => _kksoStep = 2), child: const Text('Kembali'))),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700, foregroundColor: Colors.white),
+                    onPressed: () => setState(() {
+                      _aktifKkso = _syncDoc(doc);
+                      _kksoStep = 5;
+                    }),
+                    child: const Text('Fixed Adjust', style: TextStyle(fontWeight: FontWeight.w900)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStep4(KksoDocument doc) {
+    final vOld = doc.lastPrint?.versi ?? 1;
+    final vNew = vOld + 1;
+    final item = doc.items.firstWhere((e) => e.produkId == _fokusId, orElse: () => doc.items.first);
+    final prevQ = _snapEdit[item.produkId] ?? _fisikOf(item) ?? 0;
+    final curQ = _padBuf.isNotEmpty ? _padBuf : '$prevQ';
+
+    return Scaffold(
+      key: const ValueKey('step4'),
+      resizeToAvoidBottomInset: false,
+      backgroundColor: const Color(0xFFF5F7FA),
+      body: Column(
+        children: [
+          Container(
+            color: _kSoBlue,
+            padding: const EdgeInsets.fromLTRB(8, 6, 12, 8),
+            child: Row(
+              children: [
+                IconButton(onPressed: () => setState(() => _kksoStep = 3), icon: const Icon(Icons.arrow_back_rounded, color: Colors.white)),
+                Expanded(child: Text('Step 4: Edit (v$vOld -> v$vNew)', style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w900))),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(12),
+              children: [
+                SizedBox(
+                  height: 36,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: doc.items.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 6),
+                    itemBuilder: (ctx, i) => ChoiceChip(
+                      label: Text(doc.items[i].namaProduk, style: const TextStyle(fontSize: 11)),
+                      selected: doc.items[i].produkId == item.produkId,
+                      onSelected: (_) => _pilihFokus(doc.items[i], editMode: true),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade300)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(item.namaProduk, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900)),
+                      const Text('System Qty: --- • Hidden', style: TextStyle(fontSize: 11, color: Colors.black54)),
+                      const SizedBox(height: 6),
+                      Text('v$vOld: $prevQ  ->  v$vNew: $curQ', style: gayaAngka(const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: _kSoBlue))),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _editCatatanCtrl,
+                        decoration: const InputDecoration(hintText: 'Catatan edit & timestamp...', isDense: true, border: OutlineInputBorder()),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.fromLTRB(10, 6, 10, 10),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _NumKeypad(color: _kSoBlue, confirmText: 'SIMPAN (v$vNew)', onDigit: _onDigit, onClear: _onClear, onConfirm: () => _onConfirm(doc, item, editMode: true)),
+                const SizedBox(height: 6),
+                SizedBox(
+                  width: double.infinity,
+                  height: 40,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(backgroundColor: _kSoGreen, foregroundColor: Colors.white),
+                    onPressed: () => setState(() {
+                      _aktifKkso = _syncDoc(doc);
+                      _kksoStep = 3;
+                    }),
+                    child: const Text('Cetak Ulang Selisih (HPP Baru)', style: TextStyle(fontWeight: FontWeight.w900)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStep5(KksoDocument doc) {
+    final origRp = _sumOrigHpp(doc.items);
+    final adjRp = _sumAdjHpp(doc.items);
+    final validPin = _pinSisCtrl.text.trim() == _kPinSisValid;
+
+    return Scaffold(
+      key: const ValueKey('step5'),
+      resizeToAvoidBottomInset: false,
+      backgroundColor: const Color(0xFFF5F7FA),
+      body: ListView(
+        padding: const EdgeInsets.all(14),
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            decoration: BoxDecoration(color: _kSoBlue, borderRadius: BorderRadius.circular(14)),
+            child: Row(
+              children: [
+                IconButton(onPressed: () => setState(() => _kksoStep = 3), icon: const Icon(Icons.arrow_back_rounded, color: Colors.white)),
+                const Expanded(child: Text('Step 5 • Fixed Adjust', style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900))),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade300)),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    children: [
+                      const Text('Original Price', style: TextStyle(fontSize: 11, color: Colors.black54)),
+                      Text(_fmtRp(origRp), style: gayaAngka(const TextStyle(fontSize: 18, fontWeight: FontWeight.w900))),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.arrow_forward_rounded),
+                Expanded(
+                  child: Column(
+                    children: [
+                      const Text('Adjusted Price', style: TextStyle(fontSize: 11, color: _kSoGreen, fontWeight: FontWeight.w800)),
+                      Text(_fmtRp(adjRp), style: gayaAngka(const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: _kSoGreen))),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _pinSisCtrl,
+            keyboardType: TextInputType.number,
+            obscureText: true,
+            maxLength: 6,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            onChanged: (_) => setState(() => _pinErr = false),
+            decoration: InputDecoration(
+              labelText: 'PIN 6 Digit SIS (default: 123456)',
+              errorText: _pinErr ? 'PIN SIS salah' : null,
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 48,
+            child: FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: validPin ? const Color(0xFFB91C1C) : Colors.grey.shade400, foregroundColor: Colors.white),
+              onPressed: (!validPin || _busyAdjust) ? null : () => _prosesFixedAdjust(doc),
+              child: Text(_busyAdjust ? 'MEMPROSES...' : 'FIXED ADJUST', style: const TextStyle(fontWeight: FontWeight.w900)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool get _isOwnerOrSis {
+    final role = (widget.currentStaff?.role.toString() ?? '').toLowerCase();
+    return role.contains('owner') || role.contains('sis') || role.contains('admin') || role.isEmpty;
+  }
+  final Map<String, int> _doubleCountMap = {};
+  String _alasanTerpilihKkso = 'Selisih Hitung Rak';
+  static const List<String> _daftarAlasanKkso = [
+    'Selisih Hitung Rak',
+    'Barang Rusak / Expired',
+    'Retur / Koreksi Nota',
+    'Pencurian / Susut',
+  ];
+  final TextEditingController _catatanReviewKksoCtrl = TextEditingController();
+  final TextEditingController _petugasDoubleCountCtrl = TextEditingController();
+  Widget _buildKksoPilihanAwal(AppThemeConfig t) => _buildStep0();
+  Widget _buildKksoHitungBorongan(AppThemeConfig t, KksoDocument doc) => _buildStep1(doc);
 
   late AnimationController _pulseCtrl;
   late AnimationController _waveCtrl;
@@ -1392,10 +1287,6 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
     _waveCtrl.dispose();
     _clockTimer?.cancel();
     _cariCtrl.dispose();
-    _barcodeKksoCtrl.dispose();
-    _barcodeKksoFocus.dispose();
-    _catatanReviewKksoCtrl.dispose();
-    _petugasDoubleCountCtrl.dispose();
     for (final c in _soControllers.values) {
       c.dispose();
     }
@@ -2551,6 +2442,193 @@ class _SisInventorySoViewState extends State<SisInventorySoView>
   }
 }
 
+
+class _JenisTile extends StatelessWidget {
+  final String title;
+  final String sub;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _JenisTile({required this.title, required this.sub, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    const g = Color(0xFF0E5A3E);
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFFE8F5E9) : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: selected ? g : Colors.grey.shade300, width: selected ? 1.7 : 1),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900)),
+                  Text(sub, style: const TextStyle(fontSize: 11.5, color: Colors.black54)),
+                ],
+              ),
+            ),
+            Icon(selected ? Icons.radio_button_checked_rounded : Icons.radio_button_unchecked_rounded, color: selected ? g : Colors.grey),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DraftSelisihCard extends StatelessWidget {
+  final String tokoNama;
+  final List<KksoItem> itemsSelisih;
+  final String totalHppLabel;
+  final VoidCallback onEdit;
+  final VoidCallback onPrint;
+
+  const _DraftSelisihCard({
+    required this.tokoNama,
+    required this.itemsSelisih,
+    required this.totalHppLabel,
+    required this.onEdit,
+    required this.onPrint,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const b = Color(0xFF1E40AF);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.grey.shade300)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Cetak Selisih • Ultra Blind Count', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: b)),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(color: const Color(0xFFFEE2E2), borderRadius: BorderRadius.circular(6)),
+                child: const Text('DRAFT • BUKAN ADJUST', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w900, color: Color(0xFFB91C1C))),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(tokoNama, style: const TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.w700)),
+          const Divider(height: 16),
+          Expanded(
+            child: ListView.separated(
+              itemCount: itemsSelisih.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 6),
+              itemBuilder: (ctx, i) => Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(color: const Color(0xFFFAFAFC), borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade200)),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(itemsSelisih[i].namaProduk, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800)),
+                    const Text('Has Difference', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Color(0xFFB45309))),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(10), border: Border.all(color: b.withAlpha(100))),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Total HPP Selisih', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900)),
+                Text(totalHppLabel, style: gayaAngka(const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: b))),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(child: OutlinedButton(onPressed: onEdit, child: const Text('Edit'))),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: b, foregroundColor: Colors.white),
+                  onPressed: onPrint,
+                  child: const Text('Print', style: TextStyle(fontWeight: FontWeight.w900)),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NumKeypad extends StatelessWidget {
+  final Color color;
+  final String confirmText;
+  final void Function(String) onDigit;
+  final VoidCallback onClear;
+  final VoidCallback onConfirm;
+
+  const _NumKeypad({required this.color, required this.confirmText, required this.onDigit, required this.onClear, required this.onConfirm});
+
+  @override
+  Widget build(BuildContext context) {
+    const rows = [
+      ['1', '2', '3'],
+      ['4', '5', '6'],
+      ['7', '8', '9'],
+      ['C', '0', 'OK'],
+    ];
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (int r = 0; r < rows.length; r++) ...[
+          Row(
+            children: [
+              for (int c = 0; c < rows[r].length; c++) ...[
+                Expanded(child: _btn(rows[r][c])),
+                if (c < rows[r].length - 1) const SizedBox(width: 6),
+              ],
+            ],
+          ),
+          if (r < rows.length - 1) const SizedBox(height: 6),
+        ],
+      ],
+    );
+  }
+
+  Widget _btn(String k) {
+    final isC = k == 'C';
+    final isOk = k == 'OK';
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () => isC ? onClear() : (isOk ? onConfirm() : onDigit(k)),
+      child: Container(
+        height: 56,
+        decoration: BoxDecoration(
+          color: isOk ? color : (isC ? const Color(0xFFFEE2E2) : const Color(0xFFF4F7F5)),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: isOk ? color : Colors.black12),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          isOk ? confirmText : k,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: gayaAngka(TextStyle(fontSize: isOk ? 11.5 : 22, fontWeight: FontWeight.w900, color: isOk ? Colors.white : (isC ? const Color(0xFFB91C1C) : Colors.black87))),
+        ),
+      ),
+    );
+  }
+}
 class _PillTabItem extends StatelessWidget {
   final String label;
   final bool selected;
