@@ -1059,25 +1059,24 @@ class _KasirTabState extends State<KasirTab> {
                 itemBuilder: (ctx, idx) {
                   final kat = kKategoriProduk[idx];
                   final aktif = _kategoriAktif == kat;
-                  const warnaKat = Color(0xFF0E5A3E);
+                  const goldSolid = Color(0xFFB8965A);
+                  const espressoText = Color(0xFF2C1E12);
                   return GestureDetector(
                     onTap: () => setState(() => _kategoriAktif = kat),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 11),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
-                        color: aktif ? warnaKat : t.surfaceColor,
-                        borderRadius: BorderRadius.circular(t.radius - 2),
-                        border: Border.all(
-                          color: aktif ? warnaKat : t.borderColor,
-                        ),
+                        color: aktif ? goldSolid : Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: goldSolid),
                       ),
                       child: Text(
                         kat,
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 11.5,
                           fontWeight: FontWeight.w700,
-                          color: aktif ? Colors.white : t.textPrimary,
+                          color: aktif ? Colors.white : espressoText,
                         ),
                       ),
                     ),
@@ -1221,217 +1220,161 @@ class _KasirTabState extends State<KasirTab> {
     int jumlahKolom,
     bool isSplitScreen,
   ) {
-    const warnaHijauRetail = Color(0xFF0E5A3E);
-    const warnaBiruGrosir = Color(0xFF1565C0);
+    const goldBorder = Color(0xFFB8965A);
+    const goldDark = Color(0xFF8C6D2F);
+    const espresso = Color(0xFF2C1E12);
+    const emojiBoxBg = Color(0xFFF5F1E8);
+    const grosirBg = Color(0xFFFAF6EC);
 
-    return GridView.builder(
-      padding: EdgeInsets.fromLTRB(
-        12,
-        2,
-        12,
-        isSplitScreen ? 20 : 90,
-      ),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: jumlahKolom,
-        mainAxisSpacing: 10,
-        crossAxisSpacing: 10,
-        childAspectRatio: isSplitScreen ? 0.96 : 0.92,
-      ),
-      itemCount: produkTersaring.length,
-      itemBuilder: (ctx, idx) {
-        final produk = produkTersaring[idx];
-        final qtyDiKeranjang = widget.keranjang[produk.id] ?? 0;
-        final habis = produk.stok <= 0;
-        final menipis = produk.stok > 0 && produk.stok < 5;
-        final grosirAktif = produk.isGrosirAktif(qtyDiKeranjang);
-        final warnaStok = habis || menipis ? t.dangerColor : warnaHijauRetail;
+    return Container(
+      color: const Color(0xFFFAFAF8),
+      child: GridView.builder(
+        padding: EdgeInsets.fromLTRB(
+          12,
+          4,
+          12,
+          isSplitScreen ? 20 : 90,
+        ),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: jumlahKolom < 2 ? 2 : jumlahKolom,
+          mainAxisSpacing: 12,
+          crossAxisSpacing: 12,
+          childAspectRatio: isSplitScreen ? 0.88 : 0.80,
+        ),
+        itemCount: produkTersaring.length,
+        itemBuilder: (ctx, idx) {
+          final produk = produkTersaring[idx];
+          final qtyDiKeranjang = widget.keranjang[produk.id] ?? 0;
+          final habis = produk.stok <= 0;
+          final menipis = produk.stok > 0 && produk.stok <= 3;
+          final grosirAktif = produk.isGrosirAktif(qtyDiKeranjang);
+          final emoji = _ikonKategoriCepat(produk.kategori, produk.nama);
 
-        return TactilePress(
-          onTap: habis
-              ? null
-              : () {
-                  if (qtyDiKeranjang < produk.stok) {
-                    HapticFeedback.lightImpact();
-                    widget.onUbahQty(produk.id, 1);
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Stok ${produk.nama} hanya tersisa ${produk.stok}.',
+          return TactilePress(
+            onTap: habis
+                ? null
+                : () {
+                    if (qtyDiKeranjang < produk.stok) {
+                      HapticFeedback.lightImpact();
+                      widget.onUbahQty(produk.id, 1);
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'Stok ${produk.nama} maksimal ${produk.stok} unit.',
+                          ),
                         ),
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
-                  }
-                },
-          child: Opacity(
-            opacity: habis ? 0.55 : 1.0,
+                      );
+                    }
+                  },
             child: Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: qtyDiKeranjang > 0
-                      ? warnaHijauRetail
-                      : const Color(0xFFE5E7EB),
-                  width: qtyDiKeranjang > 0 ? 1.8 : 1.0,
+                  color: qtyDiKeranjang > 0 ? goldDark : goldBorder,
+                  width: qtyDiKeranjang > 0 ? 1.5 : 1.0,
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withAlpha(12),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Baris Atas: Qty di keranjang (jika ada) & Badge Stok Hijau/Merah
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      if (qtyDiKeranjang > 0)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 7,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: warnaHijauRetail,
-                            borderRadius: BorderRadius.circular(99),
-                          ),
-                          child: Text(
-                            '${qtyDiKeranjang}x',
-                            style: gayaAngka(
-                              const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w900,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                        )
-                      else
-                        const SizedBox.shrink(),
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 3,
-                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
-                          color: warnaStok,
-                          borderRadius: BorderRadius.circular(99),
+                          color: goldBorder,
+                          borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
-                          habis ? 'Habis' : 'Stok: ${produk.stok}',
-                          style: gayaAngka(
-                            const TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
-                            ),
+                          'Stok: ${produk.stok}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
                       ),
                     ],
                   ),
-
-                  // Area Visual Produk Tengah
-                  Expanded(
-                    child: Center(
-                      child: Container(
-                        width: 48,
-                        height: 48,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF3F4F6),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          _ikonKategoriCepat(produk.kategori, produk.nama),
-                          style: const TextStyle(fontSize: 26),
-                        ),
+                  const SizedBox(height: 4),
+                  Center(
+                    child: Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: emojiBoxBg,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        emoji,
+                        style: const TextStyle(fontSize: 26),
                       ),
                     ),
                   ),
-
-                  // Nama Produk (Tebal & Jelas)
+                  const SizedBox(height: 8),
                   Text(
                     produk.nama,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF111827),
-                      height: 1.18,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      color: espresso,
+                      height: 1.2,
                     ),
                   ),
-                  const SizedBox(height: 3),
-
-                  // Harga Jual Utama (Hijau Tua Besar)
+                  const SizedBox(height: 4),
                   Text(
-                    formatRupiah(
-                      grosirAktif ? produk.hargaGrosir : produk.hargaJual,
-                    ),
+                    formatRupiah(grosirAktif ? produk.hargaGrosir : produk.hargaJual),
                     style: gayaAngka(
                       const TextStyle(
                         fontSize: 17,
-                        fontWeight: FontWeight.w900,
-                        color: warnaHijauRetail,
+                        fontWeight: FontWeight.w800,
+                        color: goldDark,
                       ),
                     ),
                   ),
-
-                  // Pill Grosir Biru Padat (jika ada harga grosir)
                   if (produk.hargaGrosir > 0 && produk.minQtyGrosir > 0) ...[
                     const SizedBox(height: 4),
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2.5,
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                       decoration: BoxDecoration(
-                        color: warnaBiruGrosir,
-                        borderRadius: BorderRadius.circular(99),
+                        color: grosirBg,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: goldBorder),
                       ),
                       child: Text(
-                        'Grosir ≥${produk.minQtyGrosir}: ${formatRupiah(produk.hargaGrosir)}',
+                        'Grosir >=${produk.minQtyGrosir}: ${formatRupiah(produk.hargaGrosir)}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: gayaAngka(
-                          const TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                          ),
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.black,
                         ),
                       ),
                     ),
                   ],
-
-                  // Peringatan Stok Hampir Habis (< 5)
-                  if (menipis) ...[
-                    const SizedBox(height: 3),
+                  if (menipis || habis) ...[
+                    const SizedBox(height: 4),
                     Row(
                       children: [
-                        Icon(
-                          Icons.warning_amber_rounded,
-                          size: 12,
-                          color: t.dangerColor,
-                        ),
+                        const Icon(Icons.warning_amber_rounded, size: 12, color: goldDark),
                         const SizedBox(width: 3),
                         Expanded(
                           child: Text(
-                            'Stok hampir habis',
+                            habis ? 'Stok habis' : 'Stok hampir habis',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
+                            style: const TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w700,
-                              color: t.dangerColor,
+                              color: goldDark,
                             ),
                           ),
                         ),
@@ -1441,12 +1384,11 @@ class _KasirTabState extends State<KasirTab> {
                 ],
               ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
-
 
   Widget _buildListPadatProduk(
     AppThemeConfig t,
